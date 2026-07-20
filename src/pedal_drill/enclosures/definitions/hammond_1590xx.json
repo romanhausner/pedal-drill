@@ -1,0 +1,13 @@
+{
+  "id": "hammond-1590xx",
+  "manufacturer": "Hammond Manufacturing",
+  "model": "1590XX",
+  "source": "https://www.hammfg.com/part/1590XX",
+  "faces": {
+    "A": { "width_mm": "121.20", "height_mm": "145.20" },
+    "B": { "width_mm": "121.20", "height_mm": "35.05" },
+    "C": { "width_mm": "35.05", "height_mm": "145.20" },
+    "D": { "width_mm": "121.20", "height_mm": "35.05" },
+    "E": { "width_mm": "35.05", "height_mm": "145.20" }
+  }
+}
