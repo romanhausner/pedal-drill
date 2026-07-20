@@ -13,7 +13,9 @@ from pedal_drill.renderers import ReportLabPdfRenderer
 from pedal_drill.renderers.pdf import RenderedPage, _PRINT_INSTRUCTIONS
 
 
-def test_renderer_creates_one_page_for_each_populated_face(tmp_path: Path) -> None:
+def test_renderer_creates_overview_then_one_page_for_each_populated_face(
+    tmp_path: Path,
+) -> None:
     template = DrillTemplate(
         holes=(
             CircularHole(Face.A, Point(Decimal("0"), Decimal("0")), Decimal("9")),
@@ -45,10 +47,11 @@ def test_renderer_creates_one_page_for_each_populated_face(tmp_path: Path) -> No
         )
 
     assert output.read_bytes().startswith(b"%PDF-")
-    assert [page.face for page in pages] == [Face.A, Face.C]
-    assert pages[0].width == Decimal("141.20")
-    assert pages[0].height == Decimal("175.20")
-    assert draw_instructions.call_count == len(pages)
+    assert [page.face for page in pages] == [None, Face.A, Face.C]
+    assert pages[0].is_overview
+    assert pages[1].width == Decimal("141.20")
+    assert pages[1].height == Decimal("175.20")
+    assert draw_instructions.call_count == 2
 
 
 def test_renderer_validates_before_creating_an_output_file(tmp_path: Path) -> None:

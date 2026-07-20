@@ -4,6 +4,9 @@ from pedal_drill.geometry import (
     CalibrationLine,
     CalibrationOrientation,
     Capsule,
+    EnclosureOverview,
+    FaceTransform,
+    OverviewFace,
     PREFERRED_CALIBRATION_LENGTHS_MM,
     Rectangle,
     calibration_lines,
@@ -14,14 +17,19 @@ from pedal_drill.geometry import (
     face_corner_radius,
     face_outline,
     face_point,
+    enclosure_overview_geometry,
     line_bounds,
     select_calibration_length,
+    transform_overview_capsule,
 )
 
 __all__ = [
     "Capsule",
     "CalibrationLine",
     "CalibrationOrientation",
+    "EnclosureOverview",
+    "FaceTransform",
+    "OverviewFace",
     "PREFERRED_CALIBRATION_LENGTHS_MM",
     "Rectangle",
     "calibration_lines",
@@ -32,6 +40,8 @@ __all__ = [
     "face_corner_radius",
     "face_outline",
     "face_point",
+    "enclosure_overview_geometry",
     "line_bounds",
     "select_calibration_length",
+    "transform_overview_capsule",
 ]

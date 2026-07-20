@@ -7,8 +7,8 @@ from decimal import Decimal
 from enum import Enum, auto
 from math import cos, radians, sin
 
-from pedal_drill.enclosures.model import FaceDimensions
-from pedal_drill.model import CircularHole, LineSegment, Point, Slot
+from pedal_drill.enclosures.model import EnclosureDefinition, FaceDimensions
+from pedal_drill.model import CircularHole, Face, LineSegment, Point, Slot
 
 _DEFAULT_CORNER_RADIUS = Decimal("5")
 PREFERRED_CALIBRATION_LENGTHS_MM = (
@@ -86,6 +86,131 @@ class CalibrationLine:
         """Return the line length in millimetres."""
 
         return abs(self.end.x - self.start.x) + abs(self.end.y - self.start.y)
+
+
+@dataclass(frozen=True, slots=True)
+class FaceTransform:
+    """Transform centre-origin face coordinates into overview-page coordinates."""
+
+    origin: Point
+    dimensions: FaceDimensions
+    scale: Decimal
+
+    def point(self, point: Point) -> Point:
+        """Return *point* translated and uniformly scaled onto the overview."""
+
+        return Point(
+            self.origin.x + ((self.dimensions.width / 2) + point.x) * self.scale,
+            self.origin.y + ((self.dimensions.height / 2) + point.y) * self.scale,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OverviewFace:
+    """A face's outline and local-coordinate transform in an unfolded overview."""
+
+    face: Face
+    bounds: Rectangle
+    transform: FaceTransform
+
+
+@dataclass(frozen=True, slots=True)
+class EnclosureOverview:
+    """Renderer-independent geometry for a uniformly scaled unfolded enclosure."""
+
+    page_bounds: Rectangle
+    net_bounds: Rectangle
+    scale: Decimal
+    faces: tuple[OverviewFace, ...]
+
+    def face_for(self, face: Face) -> OverviewFace:
+        """Return overview geometry for a particular enclosure face."""
+
+        return next(item for item in self.faces if item.face is face)
+
+
+def enclosure_overview_geometry(
+    enclosure: EnclosureDefinition,
+    *,
+    scale: Decimal = Decimal("0.5"),
+    margin: Decimal = Decimal("10"),
+) -> EnclosureOverview:
+    """Build an unfolded A--E enclosure net in page coordinates.
+
+    Face A is the centre of the net.  Its adjacent faces share edges directly;
+    the returned scale is deliberately uniform so this orientation aid never
+    distorts the relationships in the enclosure definition.
+    """
+
+    if scale <= 0:
+        raise ValueError("The overview scale must be greater than zero.")
+    if margin <= 0:
+        raise ValueError("The overview margin must be greater than zero.")
+
+    dimensions = {face: enclosure.dimensions_for(face) for face in Face}
+    a = dimensions[Face.A]
+    b = dimensions[Face.B]
+    c = dimensions[Face.C]
+    d = dimensions[Face.D]
+    e = dimensions[Face.E]
+    unscaled = {
+        Face.A: Rectangle(Decimal("0"), Decimal("0"), a.width, a.height),
+        Face.B: Rectangle(Decimal("0"), a.height, b.width, b.height),
+        Face.C: Rectangle(-c.width, Decimal("0"), c.width, c.height),
+        Face.D: Rectangle(Decimal("0"), -d.height, d.width, d.height),
+        Face.E: Rectangle(a.width, Decimal("0"), e.width, e.height),
+    }
+    min_x = min(bounds.x for bounds in unscaled.values())
+    min_y = min(bounds.y for bounds in unscaled.values())
+    max_x = max(bounds.x + bounds.width for bounds in unscaled.values())
+    max_y = max(bounds.y + bounds.height for bounds in unscaled.values())
+    net_bounds = Rectangle(min_x, min_y, max_x - min_x, max_y - min_y)
+    page_bounds = Rectangle(
+        Decimal("0"),
+        Decimal("0"),
+        net_bounds.width * scale + margin * 2,
+        net_bounds.height * scale + margin * 2,
+    )
+
+    overview_faces: list[OverviewFace] = []
+    for face in Face:
+        bounds = unscaled[face]
+        origin = Point(
+            margin + (bounds.x - net_bounds.x) * scale,
+            margin + (bounds.y - net_bounds.y) * scale,
+        )
+        overview_faces.append(
+            OverviewFace(
+                face=face,
+                bounds=Rectangle(
+                    origin.x,
+                    origin.y,
+                    bounds.width * scale,
+                    bounds.height * scale,
+                ),
+                transform=FaceTransform(origin, dimensions[face], scale),
+            )
+        )
+
+    return EnclosureOverview(
+        page_bounds=page_bounds,
+        net_bounds=net_bounds,
+        scale=scale,
+        faces=tuple(overview_faces),
+    )
+
+
+def transform_overview_capsule(
+    feature: Slot | Capsule, overview_face: OverviewFace
+) -> Capsule:
+    """Return a slot or normalized capsule transformed into overview coordinates."""
+
+    return Capsule(
+        center=overview_face.transform.point(feature.center),
+        length=feature.length * overview_face.transform.scale,
+        width=feature.width * overview_face.transform.scale,
+        angle_degrees=feature.angle_degrees,
+    )
 
 
 def face_outline(

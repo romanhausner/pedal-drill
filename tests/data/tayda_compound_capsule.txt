@@ -1,0 +1,7 @@
+# Extract from the Tungsten Tayda export: one compound capsule plus unrelated features.
+A	3.0	-17.027	10.84
+A	3.0	-25.496	27.826
+A	3.0	20.0	20.0
+A	0	-26.838	27.157	-18.369	10.17
+A	0	-24.153	28.495	-15.684	11.509
+A	0	0	0	5	0
