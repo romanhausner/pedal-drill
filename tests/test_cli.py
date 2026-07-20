@@ -46,6 +46,9 @@ def test_list_enclosures_prints_alphabetical_catalog(
     assert "Manufacturer" in lines[0]
     assert "Face A" in lines[0]
     assert identifiers == sorted(identifiers)
-    assert "hammond-1590a" in data_rows[0]
-    assert "Hammond Manufacturing" in data_rows[0]
-    assert "38.5 × 92.6 mm" in data_rows[0]
+    row_1590a = next(row for row in data_rows if "hammond-1590a" in row)
+    assert "Hammond Manufacturing" in row_1590a
+    assert "38.5 × 92.6 mm" in row_1590a
+    assert any("hammond-1590g" in row for row in data_rows)
+    assert any("hammond-1590x" in row for row in data_rows)
+    assert any("hammond-1550b" in row for row in data_rows)

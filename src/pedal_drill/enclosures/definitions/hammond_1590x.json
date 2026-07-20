@@ -1,0 +1,14 @@
+{
+  "id": "hammond-1590x",
+  "manufacturer": "Hammond",
+  "model": "1590X",
+  "unit": "mm",
+  "source": "https://www.hammfg.com/files/parts/pdf/1590X.pdf",
+  "faces": {
+    "A": { "width": 121.20, "height": 145.20 },
+    "B": { "width": 121.20, "height": 56.40 },
+    "C": { "width": 56.40, "height": 145.20 },
+    "D": { "width": 121.20, "height": 56.40 },
+    "E": { "width": 56.40, "height": 145.20 }
+  }
+}

@@ -18,7 +18,30 @@ def test_builtin_hammond_1590xx_is_loaded_from_json() -> None:
     assert enclosure.dimensions_for(Face.C).height == Decimal("145.20")
 
 
-def test_every_bundled_definition_is_complete_and_unique() -> None:
+@pytest.mark.parametrize(
+    ("identifier", "model"),
+    [
+        ("hammond-1590g", "1590G"),
+        ("hammond-1590x", "1590X"),
+        ("hammond-1550b", "1550B"),
+    ],
+)
+def test_new_hammond_definitions_are_complete(
+    identifier: str, model: str
+) -> None:
+    enclosure = EnclosureCatalog.built_in().get(identifier)
+
+    assert enclosure.manufacturer == "Hammond"
+    assert enclosure.model == model
+    assert enclosure.unit == "mm"
+    assert set(enclosure.faces) == set(Face)
+    assert all(
+        dimensions.width > 0 and dimensions.height > 0
+        for dimensions in enclosure.faces.values()
+    )
+
+
+def test_every_bundled_definition_is_complete() -> None:
     definitions_directory = (
         Path(__file__).parents[1]
         / "src"
@@ -33,9 +56,6 @@ def test_every_bundled_definition_is_complete_and_unique() -> None:
     ]
     catalog = EnclosureCatalog.built_in()
 
-    assert len({definition["id"] for definition in raw_definitions}) == len(
-        raw_definitions
-    )
     assert len(catalog.all()) == len(raw_definitions)
     for enclosure in catalog.all():
         assert set(enclosure.faces) == set(Face)
@@ -45,6 +65,22 @@ def test_every_bundled_definition_is_complete_and_unique() -> None:
             dimensions.width > 0 and dimensions.height > 0
             for dimensions in enclosure.faces.values()
         )
+
+
+def test_bundled_definition_ids_are_unique() -> None:
+    definitions_directory = (
+        Path(__file__).parents[1]
+        / "src"
+        / "pedal_drill"
+        / "enclosures"
+        / "definitions"
+    )
+    identifiers = [
+        json.loads(path.read_text(encoding="utf-8"))["id"]
+        for path in definitions_directory.glob("*.json")
+    ]
+
+    assert len(identifiers) == len(set(identifiers))
 
 
 def test_catalog_rejects_an_unsupported_definition_unit(tmp_path: Path) -> None:

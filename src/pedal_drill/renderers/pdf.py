@@ -10,9 +10,19 @@ from reportlab.pdfgen.canvas import Canvas
 
 from pedal_drill.enclosures.model import EnclosureDefinition, FaceDimensions
 from pedal_drill.enclosures.validation import validate_template_fits_enclosure
-from pedal_drill.model import CircularHole, DrillTemplate, Face, LineSegment, Slot
+from pedal_drill.model import (
+    CircularHole,
+    DrillTemplate,
+    Face,
+    LineSegment,
+    Point,
+    Slot,
+)
 from pedal_drill.geometry import (
+    CalibrationLine,
+    CalibrationOrientation,
     Capsule,
+    calibration_lines,
     capsule_for_slot,
     face_corner_radius,
     face_outline,
@@ -23,8 +33,17 @@ _POINTS_PER_MILLIMETRE = Decimal("72") / Decimal("25.4")
 _DEFAULT_MARGIN_MM = Decimal("10")
 _CROSSHAIR_HALF_LENGTH_MM = Decimal("2")
 _HOLE_LABEL_GAP_MM = Decimal("2")
-_REFERENCE_LENGTH_MM = Decimal("100")
 _REFERENCE_TICK_HALF_LENGTH_MM = Decimal("2")
+_HORIZONTAL_LABEL_GAP_MM = Decimal("1")
+_VERTICAL_LABEL_GAP_MM = Decimal("3")
+_INSTRUCTION_GUTTER_MM = Decimal("10")
+_INSTRUCTION_FONT_SIZE = 5.5
+_INSTRUCTION_LINE_HEIGHT_MM = Decimal("2.5")
+_PRINT_INSTRUCTIONS = (
+    "Print at 100% scale.",
+    'Disable scaling or "Fit to page".',
+    "Verify both calibration lines before drilling.",
+)
 
 
 class PdfRenderError(ValueError):
@@ -47,6 +66,7 @@ class ReportLabPdfRenderer:
         if margin <= 0:
             raise ValueError("The PDF margin must be greater than zero.")
         self._margin = margin
+        self._bottom_margin = margin + _INSTRUCTION_GUTTER_MM
 
     def render(
         self,
@@ -73,6 +93,7 @@ class ReportLabPdfRenderer:
             raise PdfRenderError("Cannot render a template without features.")
 
         validate_template_fits_enclosure(template, enclosure)
+        self._validate_calibration_lines(populated_faces, enclosure)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         canvas = Canvas(str(output_path))
         pages: list[RenderedPage] = []
@@ -90,7 +111,7 @@ class ReportLabPdfRenderer:
         return RenderedPage(
             face=face,
             width=dimensions.width + (self._margin * 2),
-            height=dimensions.height + (self._margin * 2),
+            height=dimensions.height + self._margin + self._bottom_margin,
         )
 
     def _draw_page(
@@ -108,7 +129,8 @@ class ReportLabPdfRenderer:
             self._points(title_y),
             f"{enclosure.model} - Face {page.face.value}",
         )
-        self._draw_reference_line(canvas, page, dimensions)
+        self._draw_calibration_lines(canvas, dimensions)
+        self._draw_instructions(canvas, page)
         self._draw_face_outline(canvas, dimensions)
         for line in self._lines_on(template, page.face):
             self._draw_line(canvas, line, dimensions)
@@ -120,7 +142,12 @@ class ReportLabPdfRenderer:
     def _draw_hole(
         self, canvas: Canvas, hole: CircularHole, dimensions: FaceDimensions
     ) -> None:
-        point = face_point(hole.center, dimensions, self._margin)
+        point = face_point(
+            hole.center,
+            dimensions,
+            self._margin,
+            self._bottom_margin,
+        )
         x, y = point.x, point.y
         radius = hole.diameter / 2
         canvas.circle(self._points(x), self._points(y), self._points(radius))
@@ -147,8 +174,8 @@ class ReportLabPdfRenderer:
     def _draw_line(
         self, canvas: Canvas, line: LineSegment, dimensions: FaceDimensions
     ) -> None:
-        start = face_point(line.start, dimensions, self._margin)
-        end = face_point(line.end, dimensions, self._margin)
+        start = face_point(line.start, dimensions, self._margin, self._bottom_margin)
+        end = face_point(line.end, dimensions, self._margin, self._bottom_margin)
         canvas.line(
             self._points(start.x),
             self._points(start.y),
@@ -159,7 +186,12 @@ class ReportLabPdfRenderer:
     def _draw_slot(
         self, canvas: Canvas, slot: Slot, dimensions: FaceDimensions
     ) -> None:
-        capsule = capsule_for_slot(slot, dimensions, self._margin)
+        capsule = capsule_for_slot(
+            slot,
+            dimensions,
+            self._margin,
+            self._bottom_margin,
+        )
         self._draw_capsule(canvas, capsule)
 
     def _draw_capsule(self, canvas: Canvas, capsule: Capsule) -> None:
@@ -180,7 +212,7 @@ class ReportLabPdfRenderer:
         canvas.restoreState()
 
     def _draw_face_outline(self, canvas: Canvas, dimensions: FaceDimensions) -> None:
-        outline = face_outline(dimensions, self._margin)
+        outline = face_outline(dimensions, self._margin, self._bottom_margin)
         canvas.roundRect(
             self._points(outline.x),
             self._points(outline.y),
@@ -191,50 +223,96 @@ class ReportLabPdfRenderer:
             fill=0,
         )
 
-    def _draw_reference_line(
-        self, canvas: Canvas, page: RenderedPage, dimensions: FaceDimensions
+    def _draw_calibration_lines(
+        self, canvas: Canvas, dimensions: FaceDimensions
     ) -> None:
-        """Draw a 100 mm line in a margin, using its longest fitting orientation."""
+        """Draw the horizontal and vertical calibration lines for a face page."""
+
+        try:
+            lines = calibration_lines(dimensions, self._margin, self._bottom_margin)
+        except ValueError as error:
+            raise PdfRenderError(str(error)) from error
+        for line in lines:
+            self._draw_calibration_line(canvas, line)
+
+    def _validate_calibration_lines(
+        self, faces: tuple[Face, ...], enclosure: EnclosureDefinition
+    ) -> None:
+        """Ensure calibration geometry is valid before an output file is opened."""
+
+        try:
+            for face in faces:
+                calibration_lines(
+                    enclosure.dimensions_for(face),
+                    self._margin,
+                    self._bottom_margin,
+                )
+        except ValueError as error:
+            raise PdfRenderError(str(error)) from error
+
+    def _draw_calibration_line(
+        self, canvas: Canvas, line: CalibrationLine
+    ) -> None:
+        """Draw one dimension line, including its endpoint ticks and label."""
 
         canvas.setFont("Helvetica", 7)
-        if dimensions.width >= _REFERENCE_LENGTH_MM:
-            start_x = (page.width - _REFERENCE_LENGTH_MM) / 2
-            end_x = start_x + _REFERENCE_LENGTH_MM
-            y = self._margin / 2
-            canvas.line(
-                self._points(start_x),
-                self._points(y),
-                self._points(end_x),
-                self._points(y),
+        canvas.line(
+            self._points(line.start.x),
+            self._points(line.start.y),
+            self._points(line.end.x),
+            self._points(line.end.y),
+        )
+        if line.orientation is CalibrationOrientation.HORIZONTAL:
+            self._draw_vertical_tick(canvas, line.start.x, line.start.y)
+            self._draw_vertical_tick(canvas, line.end.x, line.end.y)
+            label_position = self._calibration_label_position(line)
+            canvas.drawCentredString(
+                self._points(label_position.x),
+                self._points(label_position.y),
+                _calibration_label(line.length),
             )
-            self._draw_vertical_tick(canvas, start_x, y)
-            self._draw_vertical_tick(canvas, end_x, y)
+            return
+        if line.orientation is CalibrationOrientation.VERTICAL:
+            self._draw_horizontal_tick(canvas, line.start.x, line.start.y)
+            self._draw_horizontal_tick(canvas, line.end.x, line.end.y)
+            label_position = self._calibration_label_position(line)
+            canvas.saveState()
+            canvas.translate(
+                self._points(label_position.x),
+                self._points(label_position.y),
+            )
+            canvas.rotate(90)
+            canvas.drawCentredString(0, 0, _calibration_label(line.length))
+            canvas.restoreState()
+            return
+        raise PdfRenderError(f"Unsupported calibration orientation: {line.orientation}")
+
+    @staticmethod
+    def _calibration_label_position(line: CalibrationLine) -> Point:
+        """Return a centred label position with an orientation-specific gap."""
+
+        midpoint = Point(
+            (line.start.x + line.end.x) / 2,
+            (line.start.y + line.end.y) / 2,
+        )
+        if line.orientation is CalibrationOrientation.HORIZONTAL:
+            return Point(midpoint.x, midpoint.y + _HORIZONTAL_LABEL_GAP_MM)
+        if line.orientation is CalibrationOrientation.VERTICAL:
+            return Point(midpoint.x - _VERTICAL_LABEL_GAP_MM, midpoint.y)
+        raise PdfRenderError(f"Unsupported calibration orientation: {line.orientation}")
+
+    def _draw_instructions(self, canvas: Canvas, page: RenderedPage) -> None:
+        """Draw a compact print reminder in the reserved bottom gutter."""
+
+        canvas.setFont("Helvetica", _INSTRUCTION_FONT_SIZE)
+        baseline = self._bottom_margin - Decimal("3")
+        for instruction in _PRINT_INSTRUCTIONS:
             canvas.drawCentredString(
                 self._points(page.width / 2),
-                self._points(y + Decimal("1")),
-                "100 mm",
+                self._points(baseline),
+                instruction,
             )
-            return
-        if dimensions.height >= _REFERENCE_LENGTH_MM:
-            x = self._margin / 2
-            start_y = (page.height - _REFERENCE_LENGTH_MM) / 2
-            end_y = start_y + _REFERENCE_LENGTH_MM
-            canvas.line(
-                self._points(x),
-                self._points(start_y),
-                self._points(x),
-                self._points(end_y),
-            )
-            self._draw_horizontal_tick(canvas, x, start_y)
-            self._draw_horizontal_tick(canvas, x, end_y)
-            canvas.drawString(
-                self._points(x + Decimal("1")), self._points(page.height / 2), "100 mm"
-            )
-            return
-        raise PdfRenderError(
-            "The enclosure face is too small to include the required 100 mm "
-            "reference line."
-        )
+            baseline -= _INSTRUCTION_LINE_HEIGHT_MM
 
     def _draw_vertical_tick(self, canvas: Canvas, x: Decimal, y: Decimal) -> None:
         canvas.line(
@@ -265,3 +343,9 @@ class ReportLabPdfRenderer:
         """Convert millimetres to PDF points at the ReportLab drawing boundary."""
 
         return float(value * _POINTS_PER_MILLIMETRE)
+
+
+def _calibration_label(length: Decimal) -> str:
+    """Format a preferred calibration length without unnecessary decimal places."""
+
+    return f"{format(length.normalize(), 'f')} mm"

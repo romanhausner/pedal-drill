@@ -1,0 +1,14 @@
+{
+  "id": "hammond-1590g",
+  "manufacturer": "Hammond",
+  "model": "1590G",
+  "unit": "mm",
+  "source": "https://www.hammfg.com/files/parts/pdf/1590G.pdf",
+  "faces": {
+    "A": { "width": 50.00, "height": 100.00 },
+    "B": { "width": 50.00, "height": 25.50 },
+    "C": { "width": 25.50, "height": 100.00 },
+    "D": { "width": 50.00, "height": 25.50 },
+    "E": { "width": 25.50, "height": 100.00 }
+  }
+}

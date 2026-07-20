@@ -4,12 +4,31 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import Enum, auto
 from math import cos, radians, sin
 
 from pedal_drill.enclosures.model import FaceDimensions
 from pedal_drill.model import CircularHole, LineSegment, Point, Slot
 
 _DEFAULT_CORNER_RADIUS = Decimal("5")
+PREFERRED_CALIBRATION_LENGTHS_MM = (
+    Decimal("100"),
+    Decimal("90"),
+    Decimal("80"),
+    Decimal("70"),
+    Decimal("60"),
+    Decimal("50"),
+    Decimal("40"),
+    Decimal("30"),
+    Decimal("20"),
+)
+
+
+class CalibrationOrientation(Enum):
+    """The axis along which a calibration reference is drawn."""
+
+    HORIZONTAL = auto()
+    VERTICAL = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,12 +73,29 @@ class Capsule:
         return self.width / 2
 
 
-def face_outline(dimensions: FaceDimensions, margin: Decimal) -> Rectangle:
+@dataclass(frozen=True, slots=True)
+class CalibrationLine:
+    """A dimensioned reference line positioned in a page gutter."""
+
+    start: Point
+    end: Point
+    orientation: CalibrationOrientation
+
+    @property
+    def length(self) -> Decimal:
+        """Return the line length in millimetres."""
+
+        return abs(self.end.x - self.start.x) + abs(self.end.y - self.start.y)
+
+
+def face_outline(
+    dimensions: FaceDimensions, margin: Decimal, bottom_margin: Decimal | None = None
+) -> Rectangle:
     """Return the face outline rectangle positioned inside a page margin."""
 
     return Rectangle(
         x=margin,
-        y=margin,
+        y=bottom_margin if bottom_margin is not None else margin,
         width=dimensions.width,
         height=dimensions.height,
     )
@@ -83,23 +119,31 @@ def face_corner_radius(dimensions: FaceDimensions) -> Decimal:
 
 
 def face_point(
-    point: Point, dimensions: FaceDimensions, margin: Decimal
+    point: Point,
+    dimensions: FaceDimensions,
+    margin: Decimal,
+    bottom_margin: Decimal | None = None,
 ) -> Point:
     """Translate a centre-origin face point to a page point in millimetres."""
 
     return Point(
         x=margin + (dimensions.width / 2) + point.x,
-        y=margin + (dimensions.height / 2) + point.y,
+        y=(bottom_margin if bottom_margin is not None else margin)
+        + (dimensions.height / 2)
+        + point.y,
     )
 
 
 def capsule_for_slot(
-    slot: Slot, dimensions: FaceDimensions, margin: Decimal
+    slot: Slot,
+    dimensions: FaceDimensions,
+    margin: Decimal,
+    bottom_margin: Decimal | None = None,
 ) -> Capsule:
     """Translate a centre-origin slot to a page-positioned capsule."""
 
     return Capsule(
-        center=face_point(slot.center, dimensions, margin),
+        center=face_point(slot.center, dimensions, margin, bottom_margin),
         length=slot.length,
         width=slot.width,
         angle_degrees=slot.angle_degrees,
@@ -142,4 +186,49 @@ def line_bounds(line: LineSegment) -> Rectangle:
         y=min(line.start.y, line.end.y),
         width=abs(line.end.x - line.start.x),
         height=abs(line.end.y - line.start.y),
+    )
+
+
+def select_calibration_length(available: Decimal) -> Decimal | None:
+    """Select the largest preferred metric calibration length that fits."""
+
+    return next(
+        (
+            length
+            for length in PREFERRED_CALIBRATION_LENGTHS_MM
+            if length <= available
+        ),
+        None,
+    )
+
+
+def calibration_lines(
+    dimensions: FaceDimensions,
+    margin: Decimal,
+    bottom_margin: Decimal | None = None,
+) -> tuple[CalibrationLine, CalibrationLine]:
+    """Return horizontal and vertical gutter calibration lines for a face page."""
+
+    horizontal_length = select_calibration_length(dimensions.width)
+    vertical_length = select_calibration_length(dimensions.height)
+    if horizontal_length is None or vertical_length is None:
+        raise ValueError(
+            "The enclosure face is too small for a 20 mm calibration line."
+        )
+
+    page_width = dimensions.width + (margin * 2)
+    page_height = dimensions.height + margin + (
+        bottom_margin if bottom_margin is not None else margin
+    )
+    return (
+        CalibrationLine(
+            start=Point((page_width - horizontal_length) / 2, margin / 2),
+            end=Point((page_width + horizontal_length) / 2, margin / 2),
+            orientation=CalibrationOrientation.HORIZONTAL,
+        ),
+        CalibrationLine(
+            start=Point(margin / 2, (page_height - vertical_length) / 2),
+            end=Point(margin / 2, (page_height + vertical_length) / 2),
+            orientation=CalibrationOrientation.VERTICAL,
+        ),
     )
