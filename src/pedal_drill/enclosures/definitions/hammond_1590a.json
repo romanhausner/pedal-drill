@@ -1,0 +1,14 @@
+{
+  "id": "hammond-1590a",
+  "manufacturer": "Hammond Manufacturing",
+  "model": "1590A",
+  "unit": "mm",
+  "source": "https://www.hammfg.com/part/1590A",
+  "faces": {
+    "A": { "width": 38.50, "height": 92.60 },
+    "B": { "width": 38.50, "height": 31.00 },
+    "C": { "width": 31.00, "height": 92.60 },
+    "D": { "width": 38.50, "height": 31.00 },
+    "E": { "width": 31.00, "height": 92.60 }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "hammond-1590b",
+  "manufacturer": "Hammond Manufacturing",
+  "model": "1590B",
+  "unit": "mm",
+  "source": "https://www.hammfg.com/part/1590B",
+  "faces": {
+    "A": { "width": 60.50, "height": 112.40 },
+    "B": { "width": 60.50, "height": 31.00 },
+    "C": { "width": 31.00, "height": 112.40 },
+    "D": { "width": 60.50, "height": 31.00 },
+    "E": { "width": 31.00, "height": 112.40 }
+  }
+}

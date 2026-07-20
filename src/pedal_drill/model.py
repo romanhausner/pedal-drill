@@ -48,6 +48,23 @@ class LineSegment:
 
 
 @dataclass(frozen=True, slots=True)
+class Slot:
+    """A capsule-shaped slot with an explicit size and orientation."""
+
+    face: Face
+    center: Point
+    length: Decimal
+    width: Decimal
+    angle_degrees: Decimal
+
+    def __post_init__(self) -> None:
+        if self.width <= 0:
+            raise ValueError("A slot width must be greater than zero.")
+        if self.length < self.width:
+            raise ValueError("A slot length must be at least its width.")
+
+
+@dataclass(frozen=True, slots=True)
 class DrillTemplate:
     """A complete source-independent drill layout.
 
@@ -58,6 +75,7 @@ class DrillTemplate:
     holes: tuple[CircularHole, ...]
     source_format: str
     lines: tuple[LineSegment, ...] = ()
+    slots: tuple[Slot, ...] = ()
     name: str | None = None
 
     def holes_on(self, face: Face) -> tuple[CircularHole, ...]:

@@ -30,6 +30,7 @@ class EnclosureDefinition:
     manufacturer: str
     model: str
     faces: Mapping[Face, FaceDimensions]
+    unit: str
     source: str | None = None
 
     def __post_init__(self) -> None:

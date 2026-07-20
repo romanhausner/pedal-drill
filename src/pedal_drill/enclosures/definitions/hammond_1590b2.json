@@ -1,0 +1,14 @@
+{
+  "id": "hammond-1590b2",
+  "manufacturer": "Hammond Manufacturing",
+  "model": "1590B2",
+  "unit": "mm",
+  "source": "https://www.hammfg.com/part/1590B2",
+  "faces": {
+    "A": { "width": 60.50, "height": 112.40 },
+    "B": { "width": 60.50, "height": 37.50 },
+    "C": { "width": 37.50, "height": 112.40 },
+    "D": { "width": 60.50, "height": 37.50 },
+    "E": { "width": 37.50, "height": 112.40 }
+  }
+}

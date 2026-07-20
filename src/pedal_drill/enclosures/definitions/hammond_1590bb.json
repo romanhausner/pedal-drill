@@ -1,0 +1,14 @@
+{
+  "id": "hammond-1590bb",
+  "manufacturer": "Hammond Manufacturing",
+  "model": "1590BB",
+  "unit": "mm",
+  "source": "https://www.hammfg.com/part/1590BB",
+  "faces": {
+    "A": { "width": 94.00, "height": 119.50 },
+    "B": { "width": 94.00, "height": 34.00 },
+    "C": { "width": 34.00, "height": 119.50 },
+    "D": { "width": 94.00, "height": 34.00 },
+    "E": { "width": 34.00, "height": 119.50 }
+  }
+}

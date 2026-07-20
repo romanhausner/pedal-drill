@@ -31,6 +31,12 @@ python -m pip install -e ".[test]"
 pedal-drill inspect path/to/template.txt
 ```
 
+Render a 1:1 PDF using a built-in enclosure definition:
+
+```console
+pedal-drill render path/to/template.txt hammond-1590xx output/template.pdf
+```
+
 The Tayda parser accepts the tool's unheadered, tab-delimited export.
 Coordinates and diameters are in millimetres; the Tayda centre-of-face
 coordinate system is retained unchanged.
@@ -51,7 +57,29 @@ for invalid records.
 - `model.py` holds format- and renderer-independent immutable domain objects.
 - `enclosures/definitions/` contains JSON geometry definitions. The catalog
   makes physical dimensions available to future renderers without hardcoding
-  them in Python.
+  them in Python. Each file declares one `unit`; values are normalized to the
+  application's millimetre base unit when loaded.
+- `renderers/pdf.py` converts the normalized model to a basic 1:1 PDF using
+  ReportLab. SVG and DXF renderers can use the same model later.
+
+An enclosure definition is intentionally small and uses JSON numbers for all
+dimensions:
+
+```json
+{
+  "id": "example-enclosure",
+  "manufacturer": "Example",
+  "model": "Example 1",
+  "unit": "mm",
+  "faces": {
+    "A": { "width": 100, "height": 120 }
+  }
+}
+```
+
+All five Tayda faces must be present. `mm` is currently the only accepted
+source unit; the unit declaration and loader boundary make future conversions
+possible without altering this JSON schema.
 - `parsers/` turns external formats into the domain model. Each parser shares
   the small `TemplateParser` protocol, so other import formats can be added
   without touching renderers.

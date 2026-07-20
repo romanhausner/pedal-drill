@@ -1,11 +1,34 @@
+# Python bytecode and caches
 __pycache__/
 *.py[cod]
-*.egg-info/
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+
+# Test, coverage, and lint output
 .pytest_cache/
 .ruff_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
-.venv/
-dist/
+test-results/
+
+# Packaging output
+*.egg-info/
 build/
+dist/
+
+# Generated artifacts
+*.pdf
+output/
+
+# IDE settings
+.vscode/
+.idea/
+*.iml
+
+# Operating system files
 .DS_Store

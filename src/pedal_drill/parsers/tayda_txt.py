@@ -49,7 +49,8 @@ class TaydaTxtParser:
                 lines.append(self._parse_line(fields, line_number))
             else:
                 raise ParseError(
-                    f"Line {line_number}: expected 4 columns for a hole or 6 for a line."
+                    f"Line {line_number}: expected 4 columns for a hole "
+                    "or 6 for a line."
                 )
         return DrillTemplate(
             holes=tuple(holes),
@@ -105,7 +106,9 @@ class TaydaTxtParser:
         try:
             decimal = Decimal(value)
         except InvalidOperation as error:
-            raise ParseError(f"Line {line_number}: {label} must be a number.") from error
+            raise ParseError(
+                f"Line {line_number}: {label} must be a number."
+            ) from error
         if not decimal.is_finite():
             raise ParseError(f"Line {line_number}: {label} must be finite.")
         return decimal

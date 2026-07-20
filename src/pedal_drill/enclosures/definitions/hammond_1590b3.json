@@ -1,0 +1,14 @@
+{
+  "id": "hammond-1590b3",
+  "manufacturer": "Hammond Manufacturing",
+  "model": "1590B3",
+  "unit": "mm",
+  "source": "https://www.hammfg.com/part/1590B3",
+  "faces": {
+    "A": { "width": 77.00, "height": 116.00 },
+    "B": { "width": 77.00, "height": 37.50 },
+    "C": { "width": 37.50, "height": 116.00 },
+    "D": { "width": 77.00, "height": 37.50 },
+    "E": { "width": 37.50, "height": 116.00 }
+  }
+}
