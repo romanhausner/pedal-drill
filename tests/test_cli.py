@@ -31,3 +31,21 @@ def test_render_reports_an_outside_feature_without_creating_pdf(
     assert "right" in error
     assert "The drill layout does not fit this enclosure." in error
     assert not output.exists()
+
+
+def test_list_enclosures_prints_alphabetical_catalog(
+    capsys: CaptureFixture[str],
+) -> None:
+    assert main(["list-enclosures"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    data_rows = lines[2:]
+    identifiers = [row.split(" | ", maxsplit=1)[0].strip() for row in data_rows]
+
+    assert lines[0].startswith("ID")
+    assert "Manufacturer" in lines[0]
+    assert "Face A" in lines[0]
+    assert identifiers == sorted(identifiers)
+    assert "hammond-1590a" in data_rows[0]
+    assert "Hammond Manufacturing" in data_rows[0]
+    assert "38.5 × 92.6 mm" in data_rows[0]
