@@ -547,6 +547,101 @@ class EnclosureOverview:
         return next(item for item in self.faces if item.face is face)
 
 
+@dataclass(frozen=True, slots=True)
+class OverviewFaceLabelPlacement:
+    """A measured horizontal label placed safely inside an overview face."""
+
+    anchor: Point
+    bounds: Rectangle
+    safe_left: Decimal
+    safe_right: Decimal
+
+
+def overview_attachment_label_placement(
+    overview_face: OverviewFace,
+    *,
+    text_width: Decimal,
+    text_ascent: Decimal,
+    text_descent: Decimal,
+    corner_radius: Decimal,
+    preferred_clearance: Decimal = Decimal("1"),
+    minimum_clearance: Decimal = Decimal("0.4"),
+) -> OverviewFaceLabelPlacement:
+    """Place a B/D label beside its straight Face-A attachment edge.
+
+    The actual rounded-contour tangent points define the usable horizontal
+    span, so neither a trapezoid's wider outer edge nor its bounding box can
+    accidentally put text into a corner transition.  The returned anchor is a
+    centred ReportLab baseline in overview-page millimetres.
+    """
+
+    if overview_face.face not in (Face.B, Face.D):
+        raise ValueError("Attachment-edge label placement supports only faces B and D.")
+    if text_width <= 0 or text_ascent <= text_descent:
+        raise ValueError("Overview label text metrics must define a positive box.")
+    if minimum_clearance < 0 or preferred_clearance < minimum_clearance:
+        raise ValueError("Overview label clearances are invalid.")
+
+    attachment_y = (
+        overview_face.bounds.y
+        if overview_face.face is Face.B
+        else overview_face.bounds.y + overview_face.bounds.height
+    )
+    contour = rounded_polygon_path(overview_face.outline, corner_radius)
+    tangent_points = tuple(
+        point
+        for corner in contour.corners
+        for point in (corner.start, corner.end)
+        if abs(point.y - attachment_y) <= Decimal("0.000000001")
+    )
+    if len(tangent_points) != 2:
+        raise ValueError("Could not identify the rounded attachment-edge span.")
+    straight_left = min(point.x for point in tangent_points)
+    straight_right = max(point.x for point in tangent_points)
+    text_height = text_ascent - text_descent
+
+    clearances = tuple(
+        dict.fromkeys((preferred_clearance, minimum_clearance))
+    )
+    vertical_insets = (
+        preferred_clearance,
+        preferred_clearance + Decimal("1"),
+    )
+    for vertical_inset in vertical_insets:
+        for horizontal_inset in clearances:
+            safe_left = straight_left + horizontal_inset
+            safe_right = straight_right - horizontal_inset
+            if text_width > safe_right - safe_left:
+                continue
+            center_x = (safe_left + safe_right) / 2
+            if overview_face.face is Face.B:
+                box_y = attachment_y + vertical_inset
+            else:
+                box_y = attachment_y - vertical_inset - text_height
+            bounds = Rectangle(
+                center_x - text_width / 2,
+                box_y,
+                text_width,
+                text_height,
+            )
+            if (
+                bounds.x < overview_face.bounds.x
+                or bounds.x + bounds.width
+                > overview_face.bounds.x + overview_face.bounds.width
+                or bounds.y < overview_face.bounds.y
+                or bounds.y + bounds.height
+                > overview_face.bounds.y + overview_face.bounds.height
+            ):
+                continue
+            return OverviewFaceLabelPlacement(
+                anchor=Point(center_x, box_y - text_descent),
+                bounds=bounds,
+                safe_left=safe_left,
+                safe_right=safe_right,
+            )
+    raise ValueError("The overview face label does not fit its attachment edge.")
+
+
 def enclosure_overview_geometry(
     enclosure: EnclosureDefinition,
     *,
@@ -564,6 +659,94 @@ def enclosure_overview_geometry(
         raise ValueError("The overview scale must be greater than zero.")
     if margin <= 0:
         raise ValueError("The overview margin must be greater than zero.")
+
+    dimensions, local_polygons, rotations, unscaled, net_bounds = (
+        _unscaled_overview_layout(enclosure)
+    )
+    page_bounds = Rectangle(
+        Decimal("0"),
+        Decimal("0"),
+        net_bounds.width * scale + margin * 2,
+        net_bounds.height * scale + margin * 2,
+    )
+    return _positioned_overview(
+        dimensions,
+        local_polygons,
+        rotations,
+        unscaled,
+        net_bounds,
+        page_bounds=page_bounds,
+        drawing_origin=Point(margin, margin),
+        scale=scale,
+    )
+
+
+def fitted_enclosure_overview_geometry(
+    enclosure: EnclosureDefinition,
+    *,
+    page_bounds: Rectangle,
+    drawing_area: Rectangle,
+    safety_factor: Decimal = Decimal("0.97"),
+) -> EnclosureOverview:
+    """Fit and centre an unfolded enclosure net in a fixed page drawing area.
+
+    The scale is the largest uniform scale permitted by *drawing_area*, reduced
+    only by the explicit safety factor.  Page chrome such as headers and footers
+    therefore remains the renderer's responsibility while the fitting math is
+    reusable by other output formats.
+    """
+
+    if drawing_area.width <= 0 or drawing_area.height <= 0:
+        raise ValueError("The overview drawing area must have positive dimensions.")
+    if safety_factor <= 0 or safety_factor > 1:
+        raise ValueError(
+            "The overview safety factor must be greater than 0 and at most 1."
+        )
+    if (
+        drawing_area.x < page_bounds.x
+        or drawing_area.y < page_bounds.y
+        or drawing_area.x + drawing_area.width
+        > page_bounds.x + page_bounds.width
+        or drawing_area.y + drawing_area.height
+        > page_bounds.y + page_bounds.height
+    ):
+        raise ValueError("The overview drawing area must lie inside the page bounds.")
+
+    dimensions, local_polygons, rotations, unscaled, net_bounds = (
+        _unscaled_overview_layout(enclosure)
+    )
+    scale = min(
+        drawing_area.width / net_bounds.width,
+        drawing_area.height / net_bounds.height,
+    ) * safety_factor
+    scaled_width = net_bounds.width * scale
+    scaled_height = net_bounds.height * scale
+    drawing_origin = Point(
+        drawing_area.x + (drawing_area.width - scaled_width) / 2,
+        drawing_area.y + (drawing_area.height - scaled_height) / 2,
+    )
+    return _positioned_overview(
+        dimensions,
+        local_polygons,
+        rotations,
+        unscaled,
+        net_bounds,
+        page_bounds=page_bounds,
+        drawing_origin=drawing_origin,
+        scale=scale,
+    )
+
+
+def _unscaled_overview_layout(
+    enclosure: EnclosureDefinition,
+) -> tuple[
+    dict[Face, FaceGeometry],
+    dict[Face, Polygon],
+    dict[Face, int],
+    dict[Face, Rectangle],
+    Rectangle,
+]:
+    """Return the established unfolded net before page fitting or scaling."""
 
     dimensions = {face: enclosure.dimensions_for(face) for face in Face}
     b = dimensions[Face.B]
@@ -598,19 +781,28 @@ def enclosure_overview_geometry(
     max_x = max(bounds.x + bounds.width for bounds in unscaled.values())
     max_y = max(bounds.y + bounds.height for bounds in unscaled.values())
     net_bounds = Rectangle(min_x, min_y, max_x - min_x, max_y - min_y)
-    page_bounds = Rectangle(
-        Decimal("0"),
-        Decimal("0"),
-        net_bounds.width * scale + margin * 2,
-        net_bounds.height * scale + margin * 2,
-    )
+    return dimensions, local_polygons, rotations, unscaled, net_bounds
+
+
+def _positioned_overview(
+    dimensions: dict[Face, FaceGeometry],
+    local_polygons: dict[Face, Polygon],
+    rotations: dict[Face, int],
+    unscaled: dict[Face, Rectangle],
+    net_bounds: Rectangle,
+    *,
+    page_bounds: Rectangle,
+    drawing_origin: Point,
+    scale: Decimal,
+) -> EnclosureOverview:
+    """Apply one uniform scale and page translation to an unfolded net."""
 
     overview_faces: list[OverviewFace] = []
     for face in Face:
         bounds = unscaled[face]
         origin = Point(
-            margin + (bounds.x - net_bounds.x) * scale,
-            margin + (bounds.y - net_bounds.y) * scale,
+            drawing_origin.x + (bounds.x - net_bounds.x) * scale,
+            drawing_origin.y + (bounds.y - net_bounds.y) * scale,
         )
         transform = FaceTransform(
             origin,

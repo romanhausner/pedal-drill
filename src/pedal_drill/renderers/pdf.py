@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
+from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.pdfgen.pathobject import PDFPathObject
 from reportlab.pdfgen.pdfgeom import bezierArc
@@ -25,17 +26,27 @@ from pedal_drill.geometry import (
     OverviewFace,
     Polygon,
     RoundedPolygonPath,
+    Rectangle,
     calibration_lines,
     capsule_for_slot,
     capsule_path,
-    enclosure_overview_geometry,
+    face_polygon,
+    fitted_enclosure_overview_geometry,
     face_bounds,
     face_corner_radius,
     face_outline,
     face_point,
+    overview_attachment_label_placement,
     positioned_face_polygon,
     rounded_polygon_path,
     transform_overview_capsule,
+)
+from pedal_drill.label_placement import (
+    CircleObstacle,
+    LabelAlignment,
+    PlacedFeatureLabel,
+    TextMetrics,
+    place_feature_label,
 )
 from pedal_drill.model import (
     CircularHole,
@@ -63,14 +74,33 @@ from pedal_drill.renderers.styles import (
 _POINTS_PER_MILLIMETRE = Decimal("72") / Decimal("25.4")
 _DEFAULT_MARGIN_MM = Decimal("10")
 _HOLE_LABEL_GAP_MM = Decimal("2")
+_HOLE_LABEL_FONT_NAME = "Helvetica"
+_HOLE_LABEL_FONT_SIZE = 6.0
+_HOLE_LABEL_CLEARANCE_MM = Decimal("0.5")
+_HOLE_LABEL_VISUAL_GAP_MM = Decimal("0.75")
 _REFERENCE_TICK_HALF_LENGTH_MM = Decimal("2")
 _HORIZONTAL_LABEL_GAP_MM = Decimal("1")
 _VERTICAL_LABEL_GAP_MM = Decimal("3")
 _INSTRUCTION_GUTTER_MM = Decimal("10")
 _INSTRUCTION_FONT_SIZE = 5.5
 _INSTRUCTION_LINE_HEIGHT_MM = Decimal("2.5")
-_OVERVIEW_SCALE = Decimal("0.375")
-_OVERVIEW_MARGIN_MM = Decimal("20")
+OVERVIEW_PAGE_BOUNDS_MM = Rectangle(
+    Decimal("0"), Decimal("0"), Decimal("200"), Decimal("269")
+)
+_OVERVIEW_OUTER_MARGIN_MM = Decimal("10")
+_OVERVIEW_HEADER_HEIGHT_MM = Decimal("15")
+_OVERVIEW_FOOTER_HEIGHT_MM = Decimal("8")
+OVERVIEW_DRAWING_AREA_MM = Rectangle(
+    _OVERVIEW_OUTER_MARGIN_MM,
+    _OVERVIEW_OUTER_MARGIN_MM + _OVERVIEW_FOOTER_HEIGHT_MM,
+    OVERVIEW_PAGE_BOUNDS_MM.width - _OVERVIEW_OUTER_MARGIN_MM * 2,
+    OVERVIEW_PAGE_BOUNDS_MM.height
+    - _OVERVIEW_OUTER_MARGIN_MM * 2
+    - _OVERVIEW_HEADER_HEIGHT_MM
+    - _OVERVIEW_FOOTER_HEIGHT_MM,
+)
+OVERVIEW_SAFETY_FACTOR = Decimal("0.98")
+_OVERVIEW_TEXT_MARGIN_MM = Decimal("10")
 _OVERVIEW_NOTE_FONT_SIZE = 6
 _PRINT_INSTRUCTIONS = (
     "Print at 100% scale.",
@@ -131,10 +161,11 @@ class ReportLabPdfRenderer:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         canvas = Canvas(str(output_path))
         pages: list[RenderedPage] = []
-        overview = enclosure_overview_geometry(
+        overview = fitted_enclosure_overview_geometry(
             enclosure,
-            scale=_OVERVIEW_SCALE,
-            margin=_OVERVIEW_MARGIN_MM,
+            page_bounds=OVERVIEW_PAGE_BOUNDS_MM,
+            drawing_area=OVERVIEW_DRAWING_AREA_MM,
+            safety_factor=OVERVIEW_SAFETY_FACTOR,
         )
         overview_page = RenderedPage(
             face=None,
@@ -171,13 +202,13 @@ class ReportLabPdfRenderer:
         populated_faces = self._populated_faces(template)
         canvas.setFont("Helvetica-Bold", 7)
         canvas.drawString(
-            self._points(_OVERVIEW_MARGIN_MM),
+            self._points(_OVERVIEW_TEXT_MARGIN_MM),
             self._points(page.height - Decimal("7")),
             enclosure.model,
         )
         canvas.setFont("Helvetica", 5.5)
         canvas.drawString(
-            self._points(_OVERVIEW_MARGIN_MM),
+            self._points(_OVERVIEW_TEXT_MARGIN_MM),
             self._points(page.height - Decimal("11")),
             f"Outside view | {len(populated_faces)} populated faces",
         )
@@ -192,7 +223,7 @@ class ReportLabPdfRenderer:
         canvas.setFont("Helvetica", _OVERVIEW_NOTE_FONT_SIZE)
         canvas.drawCentredString(
             self._points(page.width / 2),
-            self._points(Decimal("3")),
+            self._points(Decimal("7")),
             "Orientation overview - not to scale for drilling.",
         )
 
@@ -346,11 +377,13 @@ class ReportLabPdfRenderer:
     def _draw_overview_face_label(
         self, canvas: Canvas, overview_face: OverviewFace
     ) -> None:
-        """Draw labels without letting narrow side faces spill into their neighbours."""
+        """Draw labels without touching neighbours or rounded face corners."""
 
         bounds = overview_face.bounds
         label = _overview_face_label(overview_face.face)
-        canvas.setFont("Helvetica", self._overview_style.face_label_font_size)
+        font_name = "Helvetica"
+        font_size = self._overview_style.face_label_font_size
+        canvas.setFont(font_name, font_size)
         if overview_face.face in (Face.A, Face.C, Face.E):
             canvas.saveState()
             canvas.translate(
@@ -361,9 +394,21 @@ class ReportLabPdfRenderer:
             canvas.drawCentredString(0, 0, label)
             canvas.restoreState()
             return
-        label_y = bounds.y + bounds.height - Decimal("3")
-        canvas.drawString(
-            self._points(bounds.x + Decimal("1")), self._points(label_y), label
+        metrics = self._measured_text_metrics(label, font_name, font_size)
+        placement = overview_attachment_label_placement(
+            overview_face,
+            text_width=metrics.width,
+            text_ascent=metrics.ascent,
+            text_descent=metrics.descent,
+            corner_radius=(
+                face_corner_radius(overview_face.transform.dimensions)
+                * overview_face.transform.scale
+            ),
+        )
+        canvas.drawCentredString(
+            self._points(placement.anchor.x),
+            self._points(placement.anchor.y),
+            label,
         )
 
     def _page_for(self, face: Face, dimensions: FaceGeometry) -> RenderedPage:
@@ -397,8 +442,10 @@ class ReportLabPdfRenderer:
             self._draw_line(canvas, line, dimensions, page.face)
         for slot in self._slots_on(template, page.face):
             self._draw_slot(canvas, slot, dimensions)
-        for hole in template.holes_on(page.face):
-            self._draw_hole(canvas, hole, dimensions, page.face)
+        holes = template.holes_on(page.face)
+        labels = self._place_hole_labels(template, dimensions, page.face)
+        for hole, label in zip(holes, labels, strict=True):
+            self._draw_hole(canvas, hole, dimensions, page.face, label)
 
     def _draw_hole(
         self,
@@ -406,6 +453,7 @@ class ReportLabPdfRenderer:
         hole: CircularHole,
         dimensions: FaceGeometry,
         face: Face | None = None,
+        label: PlacedFeatureLabel | None = None,
     ) -> None:
         point = face_point(
             hole.center,
@@ -422,12 +470,114 @@ class ReportLabPdfRenderer:
             radius,
             self._detail_style,
         )
-        canvas.setFont("Helvetica", 6)
-        canvas.drawCentredString(
-            self._points(x),
-            self._points(y - radius - _HOLE_LABEL_GAP_MM),
-            str(hole.diameter),
+        canvas.setFont(_HOLE_LABEL_FONT_NAME, _HOLE_LABEL_FONT_SIZE)
+        if label is None:
+            canvas.drawCentredString(
+                self._points(x),
+                self._points(y - radius - _HOLE_LABEL_GAP_MM),
+                str(hole.diameter),
+            )
+            return
+        self._draw_feature_label(canvas, label, dimensions, face)
+
+    def _place_hole_labels(
+        self,
+        template: DrillTemplate,
+        dimensions: FaceGeometry,
+        face: Face,
+    ) -> tuple[PlacedFeatureLabel, ...]:
+        """Place all diameter labels in stable source order on one face."""
+
+        holes = template.holes_on(face)
+        effective_radii = tuple(
+            max(hole.diameter / 2, self._detail_style.crosshair_half_length)
+            for hole in holes
         )
+        circles = tuple(
+            CircleObstacle(hole.center, radius)
+            for hole, radius in zip(holes, effective_radii, strict=True)
+        )
+        capsules = tuple(
+            Capsule(
+                center=slot.center,
+                length=slot.length,
+                width=slot.width,
+                angle_degrees=slot.angle_degrees,
+            )
+            for slot in self._slots_on(template, face)
+        )
+        lines = self._lines_on(template, face)
+        outline = face_polygon(dimensions, face)
+        placed: list[PlacedFeatureLabel] = []
+        for hole, radius in zip(holes, effective_radii, strict=True):
+            text = str(hole.diameter)
+            placed.append(
+                place_feature_label(
+                    text=text,
+                    feature_center=hole.center,
+                    feature_radius=radius,
+                    face=outline,
+                    metrics=self._text_metrics(text),
+                    circles=circles,
+                    capsules=capsules,
+                    lines=lines,
+                    placed_labels=placed,
+                    clearance=_HOLE_LABEL_CLEARANCE_MM,
+                    preferred_gap=_HOLE_LABEL_VISUAL_GAP_MM,
+                )
+            )
+        return tuple(placed)
+
+    def _text_metrics(self, text: str) -> TextMetrics:
+        """Measure one label with ReportLab and return millimetre extents."""
+
+        return self._measured_text_metrics(
+            text, _HOLE_LABEL_FONT_NAME, _HOLE_LABEL_FONT_SIZE
+        )
+
+    @staticmethod
+    def _measured_text_metrics(
+        text: str, font_name: str, font_size: float
+    ) -> TextMetrics:
+        """Return actual ReportLab text extents converted to millimetres."""
+
+        width = pdfmetrics.stringWidth(
+            text, font_name, font_size
+        )
+        ascent, descent = pdfmetrics.getAscentDescent(font_name, font_size)
+        return TextMetrics(
+            width=Decimal(str(width)) / _POINTS_PER_MILLIMETRE,
+            ascent=Decimal(str(ascent)) / _POINTS_PER_MILLIMETRE,
+            descent=Decimal(str(descent)) / _POINTS_PER_MILLIMETRE,
+        )
+
+    def _draw_feature_label(
+        self,
+        canvas: Canvas,
+        label: PlacedFeatureLabel,
+        dimensions: FaceGeometry,
+        face: Face | None,
+    ) -> None:
+        """Draw a placed horizontal label using its natural alignment."""
+
+        anchor = face_point(
+            label.anchor,
+            dimensions,
+            self._margin,
+            self._bottom_margin,
+            face,
+        )
+        arguments = (
+            self._points(anchor.x),
+            self._points(anchor.y),
+            label.text,
+        )
+        if label.alignment is LabelAlignment.CENTER:
+            canvas.drawCentredString(*arguments)
+        elif label.alignment is LabelAlignment.RIGHT:
+            canvas.drawRightString(*arguments)
+        else:
+            canvas.drawString(*arguments)
 
     def _draw_line(
         self,
