@@ -74,6 +74,79 @@ class Capsule:
 
 
 @dataclass(frozen=True, slots=True)
+class CircularArc:
+    """One circular arc in a renderer-independent closed contour."""
+
+    center: Point
+    radius: Decimal
+    start_angle_degrees: Decimal
+    sweep_degrees: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class CapsulePath:
+    """The canonical local-coordinate path for a capsule.
+
+    The path starts at ``start``, follows a straight side to
+    ``first_side_end``, then alternates an end arc and the opposite straight
+    side.  The final arc ends back at ``start``, so renderers can fill and
+    stroke one identical closed contour.
+    """
+
+    start: Point
+    first_side_end: Point
+    first_end_arc: CircularArc
+    second_side_end: Point
+    second_end_arc: CircularArc
+
+    @property
+    def is_closed(self) -> bool:
+        """Return whether the final circular arc terminates at ``start``."""
+
+        end_angle = radians(
+            float(
+                self.second_end_arc.start_angle_degrees
+                + self.second_end_arc.sweep_degrees
+            )
+        )
+        end = Point(
+            self.second_end_arc.center.x
+            + Decimal(str(cos(end_angle))) * self.second_end_arc.radius,
+            self.second_end_arc.center.y
+            + Decimal(str(sin(end_angle))) * self.second_end_arc.radius,
+        )
+        tolerance = Decimal("0.000000001")
+        return (
+            abs(end.x - self.start.x) <= tolerance
+            and abs(end.y - self.start.y) <= tolerance
+        )
+
+
+def capsule_path(capsule: Capsule) -> CapsulePath:
+    """Return the single canonical capsule contour in local coordinates."""
+
+    radius = capsule.corner_radius
+    half_centerline = (capsule.length - capsule.width) / 2
+    return CapsulePath(
+        start=Point(half_centerline, radius),
+        first_side_end=Point(-half_centerline, radius),
+        first_end_arc=CircularArc(
+            center=Point(-half_centerline, Decimal("0")),
+            radius=radius,
+            start_angle_degrees=Decimal("90"),
+            sweep_degrees=Decimal("180"),
+        ),
+        second_side_end=Point(half_centerline, -radius),
+        second_end_arc=CircularArc(
+            center=Point(half_centerline, Decimal("0")),
+            radius=radius,
+            start_angle_degrees=Decimal("270"),
+            sweep_degrees=Decimal("180"),
+        ),
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class CalibrationLine:
     """A dimensioned reference line positioned in a page gutter."""
 

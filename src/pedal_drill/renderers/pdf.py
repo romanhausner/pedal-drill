@@ -7,6 +7,8 @@ from decimal import Decimal
 from pathlib import Path
 
 from reportlab.pdfgen.canvas import Canvas
+from reportlab.pdfgen.pathobject import PDFPathObject
+from reportlab.pdfgen.pdfgeom import bezierArc
 
 from pedal_drill.enclosures.model import EnclosureDefinition, FaceDimensions
 from pedal_drill.enclosures.validation import validate_template_fits_enclosure
@@ -14,10 +16,12 @@ from pedal_drill.geometry import (
     CalibrationLine,
     CalibrationOrientation,
     Capsule,
+    CircularArc,
     EnclosureOverview,
     OverviewFace,
     calibration_lines,
     capsule_for_slot,
+    capsule_path,
     enclosure_overview_geometry,
     face_corner_radius,
     face_outline,
@@ -415,59 +419,75 @@ class ReportLabPdfRenderer:
     def _draw_capsule(
         self, canvas: Canvas, capsule: Capsule, style: DrawingStyle
     ) -> None:
-        """Draw a rotated capsule without exposing ReportLab to domain geometry."""
+        """Draw a rotated capsule from its canonical closed path."""
 
-        canvas.saveState()
-        canvas.translate(self._points(capsule.center.x), self._points(capsule.center.y))
-        canvas.rotate(float(capsule.angle_degrees))
-        canvas.setLineWidth(style.feature_stroke_width)
-        self._set_closed_feature_fill(canvas, style)
-        canvas.roundRect(
-            self._points(-capsule.length / 2),
-            self._points(-capsule.width / 2),
-            self._points(capsule.length),
-            self._points(capsule.width),
-            self._points(capsule.corner_radius),
-            stroke=1,
-            fill=0,
-        )
-        canvas.restoreState()
+        self._draw_capsule_path(canvas, capsule, style)
 
     def _draw_overview_capsule(
         self, canvas: Canvas, capsule: Capsule, style: DrawingStyle
     ) -> None:
-        """Stroke one closed capsule path without endpoint-circle construction aids."""
+        """Draw an overview capsule from the same path used by detail pages."""
 
-        radius = capsule.corner_radius
-        half_centerline = (capsule.length - capsule.width) / 2
+        self._draw_capsule_path(canvas, capsule, style)
+
+    def _draw_capsule_path(
+        self, canvas: Canvas, capsule: Capsule, style: DrawingStyle
+    ) -> None:
+        """Fill and stroke one canonical capsule path in a single operation."""
+
+        contour = capsule_path(capsule)
         canvas.saveState()
         canvas.translate(self._points(capsule.center.x), self._points(capsule.center.y))
         canvas.rotate(float(capsule.angle_degrees))
         canvas.setLineWidth(style.feature_stroke_width)
         self._set_closed_feature_fill(canvas, style)
         path = canvas.beginPath()
-        path.moveTo(self._points(half_centerline), self._points(radius))
-        path.lineTo(self._points(-half_centerline), self._points(radius))
-        path.arc(
-            self._points(-half_centerline - radius),
-            self._points(-radius),
-            self._points(-half_centerline + radius),
-            self._points(radius),
-            90,
-            180,
+        path.moveTo(self._points(contour.start.x), self._points(contour.start.y))
+        path.lineTo(
+            self._points(contour.first_side_end.x),
+            self._points(contour.first_side_end.y),
         )
-        path.lineTo(self._points(half_centerline), self._points(-radius))
-        path.arc(
-            self._points(half_centerline - radius),
-            self._points(-radius),
-            self._points(half_centerline + radius),
-            self._points(radius),
-            270,
-            180,
+        self._capsule_path_arc(path, contour.first_end_arc)
+        path.lineTo(
+            self._points(contour.second_side_end.x),
+            self._points(contour.second_side_end.y),
         )
+        self._capsule_path_arc(path, contour.second_end_arc)
         path.close()
         canvas.drawPath(path, stroke=1, fill=self._closed_feature_fill_enabled(style))
         canvas.restoreState()
+
+    def _capsule_path_arc(self, path: PDFPathObject, arc: CircularArc) -> None:
+        """Append one arc from the canonical renderer-independent contour."""
+
+        self._append_arc_curves(
+            path,
+            self._points(arc.center.x - arc.radius),
+            self._points(arc.center.y - arc.radius),
+            self._points(arc.center.x + arc.radius),
+            self._points(arc.center.y + arc.radius),
+            float(arc.start_angle_degrees),
+            float(arc.sweep_degrees),
+        )
+
+    @staticmethod
+    def _append_arc_curves(
+        path: PDFPathObject,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        start_angle: float,
+        sweep_angle: float,
+    ) -> None:
+        """Append Bézier arc segments without beginning another PDF subpath."""
+
+        curves = bezierArc(x1, y1, x2, y2, start_angle, sweep_angle)
+        for curve in curves:
+            # PDFPathObject.arc() begins a new subpath.  Appending only its
+            # Bézier segments keeps this contour continuous and prevents the
+            # close operation from creating a diagonal fill boundary.
+            path.curveTo(*curve[2:])
 
     def _draw_overview_compound_outline(
         self,
@@ -507,13 +527,14 @@ class ReportLabPdfRenderer:
         path.lineTo(self._points(transformed.x), self._points(transformed.y))
 
     def _path_arc(
-        self, path: object, arc: OverviewArc, overview_face: OverviewFace
+        self, path: PDFPathObject, arc: OverviewArc, overview_face: OverviewFace
     ) -> None:
         """Append a uniformly transformed exterior circular arc to a PDF path."""
 
         center = overview_face.transform.point(arc.center)
         radius = arc.radius * overview_face.transform.scale
-        path.arc(
+        self._append_arc_curves(
+            path,
             self._points(center.x - radius),
             self._points(center.y - radius),
             self._points(center.x + radius),

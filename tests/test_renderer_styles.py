@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 from decimal import Decimal
+from io import BytesIO
 from pathlib import Path
 from typing import cast
 
@@ -9,6 +10,7 @@ from reportlab.pdfgen.canvas import Canvas
 
 from pedal_drill.enclosures import EnclosureCatalog
 from pedal_drill.geometry import (
+    Capsule,
     enclosure_overview_geometry,
     transform_overview_capsule,
 )
@@ -33,6 +35,7 @@ class _StrokeCanvas:
         self.fill_grays: list[float] = []
         self.circle_options: list[dict[str, int]] = []
         self.path_options: list[dict[str, int]] = []
+        self.round_rect_count = 0
 
     def setLineWidth(self, width: float) -> None:  # noqa: N802
         self.line_widths.append(width)
@@ -45,7 +48,7 @@ class _StrokeCanvas:
         self.line_count += 1
 
     def roundRect(self, *_: float, **__: int) -> None:  # noqa: N802
-        pass
+        self.round_rect_count += 1
 
     def saveState(self) -> None:  # noqa: N802
         pass
@@ -80,18 +83,27 @@ class _StrokeCanvas:
 class _RecordedPath:
     def __init__(self) -> None:
         self.operations: list[str] = []
+        self.commands: list[tuple[str, tuple[float, ...]]] = []
 
-    def moveTo(self, *_: float) -> None:  # noqa: N802
+    def moveTo(self, *coordinates: float) -> None:  # noqa: N802
         self.operations.append("move")
+        self.commands.append(("move", coordinates))
 
-    def lineTo(self, *_: float) -> None:  # noqa: N802
+    def lineTo(self, *coordinates: float) -> None:  # noqa: N802
         self.operations.append("line")
+        self.commands.append(("line", coordinates))
 
-    def arc(self, *_: float) -> None:
+    def arc(self, *coordinates: float) -> None:
         self.operations.append("arc")
+        self.commands.append(("arc", coordinates))
+
+    def curveTo(self, *coordinates: float) -> None:  # noqa: N802
+        self.operations.append("curve")
+        self.commands.append(("curve", coordinates))
 
     def close(self) -> None:
         self.operations.append("close")
+        self.commands.append(("close", ()))
 
 
 def test_overview_features_use_the_lighter_overview_style() -> None:
@@ -142,13 +154,102 @@ def test_overview_features_use_the_lighter_overview_style() -> None:
     assert canvas.paths[0].operations == [
         "move",
         "line",
-        "arc",
+        "curve",
+        "curve",
         "line",
-        "arc",
+        "curve",
+        "curve",
         "close",
     ]
     assert canvas.rotations == [45.0]
     assert canvas.path_options == [{"stroke": 1, "fill": 1}]
+
+
+def test_detail_and_overview_slots_share_one_canonical_path() -> None:
+    capsule = Capsule(
+        center=Point(Decimal("15"), Decimal("20")),
+        length=Decimal("18"),
+        width=Decimal("6"),
+        angle_degrees=Decimal("-30"),
+    )
+    detail_canvas = _StrokeCanvas()
+    overview_canvas = _StrokeCanvas()
+    renderer = ReportLabPdfRenderer()
+
+    renderer._draw_capsule(
+        cast(Canvas, detail_canvas), capsule, DETAIL_DRAWING_STYLE
+    )
+    renderer._draw_overview_capsule(
+        cast(Canvas, overview_canvas), capsule, OVERVIEW_DRAWING_STYLE
+    )
+
+    expected_operations = [
+        "move",
+        "line",
+        "curve",
+        "curve",
+        "line",
+        "curve",
+        "curve",
+        "close",
+    ]
+    assert detail_canvas.paths[0].operations == expected_operations
+    assert overview_canvas.paths[0].operations == expected_operations
+    assert detail_canvas.paths[0].commands == overview_canvas.paths[0].commands
+    assert detail_canvas.path_options == [{"stroke": 1, "fill": 0}]
+    assert overview_canvas.path_options == [{"stroke": 1, "fill": 1}]
+    assert detail_canvas.round_rect_count == 0
+    assert overview_canvas.round_rect_count == 0
+
+
+def test_slot_fill_and_stroke_are_one_path_without_an_internal_segment() -> None:
+    canvas = _StrokeCanvas()
+    renderer = ReportLabPdfRenderer()
+
+    renderer._draw_overview_capsule(
+        cast(Canvas, canvas),
+        Capsule(
+            center=Point(Decimal("0"), Decimal("0")),
+            length=Decimal("20"),
+            width=Decimal("8"),
+            angle_degrees=Decimal("45"),
+        ),
+        OVERVIEW_DRAWING_STYLE,
+    )
+
+    assert len(canvas.paths) == 1
+    assert canvas.path_options == [{"stroke": 1, "fill": 1}]
+    assert canvas.paths[0].operations.count("line") == 2
+    assert canvas.paths[0].operations.count("curve") == 4
+    assert canvas.paths[0].operations.count("move") == 1
+    assert canvas.paths[0].operations[-1] == "close"
+
+
+def test_rendered_slot_uses_one_closed_fill_and_stroke_pdf_path() -> None:
+    output = BytesIO()
+    canvas = Canvas(output, pageCompression=0)
+
+    ReportLabPdfRenderer()._draw_overview_capsule(
+        canvas,
+        Capsule(
+            center=Point(Decimal("0"), Decimal("0")),
+            length=Decimal("20"),
+            width=Decimal("8"),
+            angle_degrees=Decimal("0"),
+        ),
+        OVERVIEW_DRAWING_STYLE,
+    )
+    canvas.save()
+
+    pdf = output.getvalue()
+    stream_start = pdf.index(b"stream\n") + len(b"stream\n")
+    stream_end = pdf.index(b"endstream", stream_start)
+    slot_path = pdf[stream_start:stream_end].split(b"n ", maxsplit=1)[1]
+    assert slot_path.count(b" m ") == 1
+    assert slot_path.count(b" l ") == 2
+    assert slot_path.count(b" c ") == 4
+    assert slot_path.count(b" h\n") == 1
+    assert slot_path.count(b"B*") == 1
 
 
 def test_detail_features_retain_the_established_detail_style() -> None:
@@ -248,10 +349,10 @@ def test_compound_tayda_capsule_renders_as_one_closed_outline_path() -> None:
     assert len(canvas.paths) == 1
     assert canvas.fill_grays == [1.0]
     assert canvas.path_options == [{"stroke": 1, "fill": 1}]
-    assert canvas.paths[0].operations == [
-        "move",
-        "line",
-        "arc",
-        "line",
-        "arc",
-    ]
+    operations = canvas.paths[0].operations
+    assert operations[0] == "move"
+    assert operations.count("move") == 1
+    assert operations.count("line") == 2
+    assert operations.count("curve") >= 4
+    assert "arc" not in operations
+    assert "close" not in operations

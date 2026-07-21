@@ -9,8 +9,10 @@ from pedal_drill.renderers.geometry import (
     PREFERRED_CALIBRATION_LENGTHS_MM,
     CalibrationLine,
     CalibrationOrientation,
+    Capsule,
     calibration_lines,
     capsule_for_slot,
+    capsule_path,
     face_outline,
     face_point,
     select_calibration_length,
@@ -48,6 +50,26 @@ def test_slot_geometry_preserves_size_and_orientation() -> None:
     assert capsule.width == Decimal("6")
     assert capsule.angle_degrees == Decimal("45")
     assert capsule.corner_radius == Decimal("3")
+
+
+def test_slot_path_is_one_closed_capsule_contour() -> None:
+    contour = capsule_path(
+        Capsule(
+            center=Point(Decimal("12"), Decimal("34")),
+            length=Decimal("18"),
+            width=Decimal("6"),
+            angle_degrees=Decimal("27"),
+        )
+    )
+
+    assert contour.is_closed
+    assert contour.start == Point(Decimal("6"), Decimal("3"))
+    assert contour.first_side_end == Point(Decimal("-6"), Decimal("3"))
+    assert contour.second_side_end == Point(Decimal("6"), Decimal("-3"))
+    assert contour.first_end_arc.center == Point(Decimal("-6"), Decimal("0"))
+    assert contour.second_end_arc.center == Point(Decimal("6"), Decimal("0"))
+    assert contour.first_end_arc.sweep_degrees == Decimal("180")
+    assert contour.second_end_arc.sweep_degrees == Decimal("180")
 
 
 def test_calibration_lengths_are_preferred_and_fit_face_dimensions() -> None:
