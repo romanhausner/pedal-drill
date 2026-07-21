@@ -27,7 +27,7 @@ dimensions derived from the manufacturer's CAD models.
 ## Development installation
 
 ```console
-git clone <repository-url>
+git clone https://github.com/romanhausner/pedal-drill
 cd pedal-drill
 python -m venv .venv
 . .venv/bin/activate
