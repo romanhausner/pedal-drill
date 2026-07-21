@@ -32,3 +32,4 @@ output/
 
 # Operating system files
 .DS_Store
+tools/cad/

@@ -4,9 +4,10 @@ from decimal import Decimal
 from typing import cast
 from unittest.mock import MagicMock, patch
 
+import pytest
 from reportlab.pdfgen.canvas import Canvas
 
-from pedal_drill.enclosures import EnclosureCatalog
+from pedal_drill.enclosures import EnclosureCatalog, TrapezoidFaceDimensions
 from pedal_drill.geometry import enclosure_overview_geometry, transform_overview_capsule
 from pedal_drill.model import (
     CircularHole,
@@ -17,6 +18,18 @@ from pedal_drill.model import (
     Slot,
 )
 from pedal_drill.renderers.pdf import ReportLabPdfRenderer
+
+
+CAD_TAPERED_ENCLOSURES = (
+    "hammond-1550b",
+    "hammond-1590a",
+    "hammond-1590b",
+    "hammond-1590b2",
+    "hammond-1590bb",
+    "hammond-1590g",
+    "hammond-1590x",
+    "hammond-1590xx",
+)
 
 
 def _edge_length(start: Point, end: Point) -> Decimal:
@@ -135,6 +148,50 @@ def test_all_side_faces_attach_their_narrow_face_a_edge() -> None:
     assert _axis_edge_length(
         e.outline.vertices, axis="x", value=e.bounds.x + e.bounds.width
     ) == Decimal("145.20")
+
+
+@pytest.mark.parametrize("identifier", CAD_TAPERED_ENCLOSURES)
+def test_cad_tapered_overviews_attach_the_narrow_edge_to_face_a(
+    identifier: str,
+) -> None:
+    enclosure = EnclosureCatalog.built_in().get(identifier)
+    overview = enclosure_overview_geometry(
+        enclosure, scale=Decimal("1"), margin=Decimal("10")
+    )
+    a = overview.face_for(Face.A)
+    b = overview.face_for(Face.B)
+    c = overview.face_for(Face.C)
+    d = overview.face_for(Face.D)
+    e = overview.face_for(Face.E)
+    width_face = enclosure.dimensions_for(Face.B)
+    length_face = enclosure.dimensions_for(Face.C)
+    assert isinstance(width_face, TrapezoidFaceDimensions)
+    assert isinstance(length_face, TrapezoidFaceDimensions)
+
+    assert _axis_edge_length(
+        b.outline.vertices, axis="y", value=a.bounds.y + a.bounds.height
+    ) == width_face.top_width
+    assert _axis_edge_length(
+        b.outline.vertices, axis="y", value=b.bounds.y + b.bounds.height
+    ) == width_face.bottom_width
+    assert _axis_edge_length(
+        d.outline.vertices, axis="y", value=a.bounds.y
+    ) == width_face.top_width
+    assert _axis_edge_length(
+        d.outline.vertices, axis="y", value=d.bounds.y
+    ) == width_face.bottom_width
+    assert _axis_edge_length(
+        c.outline.vertices, axis="x", value=a.bounds.x
+    ) == length_face.top_width
+    assert _axis_edge_length(
+        c.outline.vertices, axis="x", value=c.bounds.x
+    ) == length_face.bottom_width
+    assert _axis_edge_length(
+        e.outline.vertices, axis="x", value=a.bounds.x + a.bounds.width
+    ) == length_face.top_width
+    assert _axis_edge_length(
+        e.outline.vertices, axis="x", value=e.bounds.x + e.bounds.width
+    ) == length_face.bottom_width
 
 
 def test_overview_transform_preserves_local_coordinates_and_slot_geometry() -> None:

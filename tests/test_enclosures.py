@@ -14,6 +14,17 @@ from pedal_drill.enclosures import (
 from pedal_drill.model import Face
 
 
+CAD_VERIFIED_TRAPEZOIDS = {
+    "hammond-1550b": (("63.09", "64.00"), ("113.59", "114.50"), "26.00"),
+    "hammond-1590a": (("37.09", "38.50"), ("91.19", "92.60"), "27.00"),
+    "hammond-1590b": (("59.32", "60.50"), ("111.22", "112.40"), "27.00"),
+    "hammond-1590b2": (("59.04", "60.50"), ("110.94", "112.40"), "33.50"),
+    "hammond-1590bb": (("91.38", "94.00"), ("116.88", "119.50"), "30.00"),
+    "hammond-1590g": (("48.87", "50.00"), ("98.87", "100.00"), "21.50"),
+    "hammond-1590x": (("118.46", "121.20"), ("142.46", "145.20"), "52.30"),
+}
+
+
 def test_builtin_hammond_1590xx_is_loaded_from_json() -> None:
     enclosure = EnclosureCatalog.built_in().get("hammond-1590xx")
 
@@ -40,6 +51,51 @@ def test_builtin_hammond_1590xx_uses_verified_trapezoids() -> None:
         assert dimensions.top_width == Decimal("143.36")
         assert dimensions.bottom_width == Decimal("145.20")
         assert dimensions.height == Decimal("35.20")
+
+
+@pytest.mark.parametrize(
+    ("identifier", "widths", "lengths", "height"),
+    [
+        (identifier, *values)
+        for identifier, values in CAD_VERIFIED_TRAPEZOIDS.items()
+    ],
+)
+def test_cad_verified_catalog_faces_use_reviewed_trapezoids(
+    identifier: str,
+    widths: tuple[str, str],
+    lengths: tuple[str, str],
+    height: str,
+) -> None:
+    enclosure = EnclosureCatalog.built_in().get(identifier)
+
+    for face, expected_edges in (
+        (Face.B, widths),
+        (Face.D, widths),
+        (Face.C, lengths),
+        (Face.E, lengths),
+    ):
+        dimensions = enclosure.dimensions_for(face)
+        assert isinstance(dimensions, TrapezoidFaceDimensions)
+        assert dimensions.top_width == Decimal(expected_edges[0])
+        assert dimensions.bottom_width == Decimal(expected_edges[1])
+        assert dimensions.height == Decimal(height)
+        assert Decimal("0") < dimensions.top_width <= dimensions.bottom_width
+        assert dimensions.height > 0
+
+
+def test_unmodified_rectangular_enclosure_remains_rectangular() -> None:
+    enclosure = EnclosureCatalog.built_in().get("hammond-1590b3")
+
+    assert all(
+        isinstance(dimensions, FaceDimensions)
+        for dimensions in enclosure.faces.values()
+    )
+    assert enclosure.dimensions_for(Face.A) == FaceDimensions(
+        Decimal("77.00"), Decimal("116.00")
+    )
+    assert enclosure.dimensions_for(Face.B) == FaceDimensions(
+        Decimal("77.00"), Decimal("37.50")
+    )
 
 
 def test_catalog_parses_rectangle_without_an_explicit_shape(tmp_path: Path) -> None:

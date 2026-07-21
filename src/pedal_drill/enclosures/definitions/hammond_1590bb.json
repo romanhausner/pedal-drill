@@ -6,9 +6,9 @@
   "source": "https://www.hammfg.com/part/1590BB",
   "faces": {
     "A": { "width": 94.00, "height": 119.50 },
-    "B": { "width": 94.00, "height": 34.00 },
-    "C": { "width": 34.00, "height": 119.50 },
-    "D": { "width": 94.00, "height": 34.00 },
-    "E": { "width": 34.00, "height": 119.50 }
+    "B": { "shape": "trapezoid", "top_width": 91.38, "bottom_width": 94.00, "height": 30.00 },
+    "C": { "shape": "trapezoid", "top_width": 116.88, "bottom_width": 119.50, "height": 30.00 },
+    "D": { "shape": "trapezoid", "top_width": 91.38, "bottom_width": 94.00, "height": 30.00 },
+    "E": { "shape": "trapezoid", "top_width": 116.88, "bottom_width": 119.50, "height": 30.00 }
   }
 }

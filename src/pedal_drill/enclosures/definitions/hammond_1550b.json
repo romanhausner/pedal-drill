@@ -6,9 +6,9 @@
   "source": "https://www.hammfg.com/pdf/1550B.pdf",
   "faces": {
     "A": { "width": 64.00, "height": 114.50 },
-    "B": { "width": 64.00, "height": 26.00 },
-    "C": { "width": 26.00, "height": 114.50 },
-    "D": { "width": 64.00, "height": 26.00 },
-    "E": { "width": 26.00, "height": 114.50 }
+    "B": { "shape": "trapezoid", "top_width": 63.09, "bottom_width": 64.00, "height": 26.00 },
+    "C": { "shape": "trapezoid", "top_width": 113.59, "bottom_width": 114.50, "height": 26.00 },
+    "D": { "shape": "trapezoid", "top_width": 63.09, "bottom_width": 64.00, "height": 26.00 },
+    "E": { "shape": "trapezoid", "top_width": 113.59, "bottom_width": 114.50, "height": 26.00 }
   }
 }

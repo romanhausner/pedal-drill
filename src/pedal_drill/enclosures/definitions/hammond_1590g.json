@@ -6,9 +6,9 @@
   "source": "https://www.hammfg.com/files/parts/pdf/1590G.pdf",
   "faces": {
     "A": { "width": 50.00, "height": 100.00 },
-    "B": { "width": 50.00, "height": 25.50 },
-    "C": { "width": 25.50, "height": 100.00 },
-    "D": { "width": 50.00, "height": 25.50 },
-    "E": { "width": 25.50, "height": 100.00 }
+    "B": { "shape": "trapezoid", "top_width": 48.87, "bottom_width": 50.00, "height": 21.50 },
+    "C": { "shape": "trapezoid", "top_width": 98.87, "bottom_width": 100.00, "height": 21.50 },
+    "D": { "shape": "trapezoid", "top_width": 48.87, "bottom_width": 50.00, "height": 21.50 },
+    "E": { "shape": "trapezoid", "top_width": 98.87, "bottom_width": 100.00, "height": 21.50 }
   }
 }

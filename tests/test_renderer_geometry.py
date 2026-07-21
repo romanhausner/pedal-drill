@@ -97,7 +97,7 @@ def test_small_face_uses_shorter_calibration_lengths() -> None:
     horizontal, vertical = calibration_lines(dimensions, Decimal("10"))
 
     assert horizontal.length == Decimal("30")
-    assert vertical.length == Decimal("30")
+    assert vertical.length == Decimal("20")
     assert select_calibration_length(Decimal("20")) == Decimal("20")
     assert select_calibration_length(Decimal("19.999")) is None
 
