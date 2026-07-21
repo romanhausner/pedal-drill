@@ -1,0 +1,168 @@
+# Hammond 1590XX CAD body analysis
+
+## Result
+
+The supplied STEP assembly loaded successfully with CadQuery 2.6.1 and its
+OpenCascade 7.8 backend. The STEP file declares millimetres. It contains six
+solid instances representing three unique geometries:
+
+| Solid | Interpretation | Volume (mm³) | X × Y × Z bounds (mm) |
+|---:|---|---:|---:|
+| 0 | `1590XX BOX` — enclosure body | 82,348.584 | 145.200 × 35.200 × 121.200 |
+| 1 | `1590X-XX LID` — removable lid | 40,549.692 | 145.200 × 5.600 × 121.200 |
+| 2–5 | four instances of the lid screw | 133.344 each | 6.858 × 11.836 × 6.858 each |
+
+Only solid 0 was sectioned and measured. The lid and four screws were excluded.
+
+The model coordinate system is:
+
+- X: enclosure length, 145.2 mm at the open/lid side
+- Z: enclosure width, 121.2 mm at the open/lid side
+- Y: perpendicular body height
+- Face A: the large closed exterior face at Y = -35.200 mm
+- Open/lid mating side: Y = 0.000 mm
+- Face B and D: short side faces spanning the Z dimension
+- Face C and E: long side faces spanning the X dimension
+
+The lid spans Y = -1.500 to +4.100 mm. Its full solid bounding height is
+5.600 mm, while 4.100 mm projects beyond the body opening. The assembled CAD
+height is therefore 35.200 + 4.100 = 39.300 mm.
+
+## Section method
+
+The body bounding box was not used as the sole source of the taper. Nine
+horizontal OpenCascade sections were made through the stable outer-wall region,
+from Y = -34.000 to Y = -1.200 mm. At each level, the longest closed section
+wire was selected as the main outside contour; internal walls, screw bosses and
+other loops were ignored.
+
+The two representative sections are:
+
+| Section | Length X (mm) | Width Z (mm) |
+|---|---:|---:|
+| 1.2 mm inward from Face A | 143.419 | 119.419 |
+| 1.2 mm inward from open edge | 145.137 | 121.137 |
+
+Both dimensions vary linearly with Y over all nine samples with R² =
+1.000000000. The outer-wall lines were therefore extrapolated to the physical
+closed and open body planes. This avoids treating the closed-edge fillet or the
+open lap-joint details as the main drafted wall.
+
+## CAD-derived dimensions
+
+Raw calculated values are shown to three decimal places. The labels “top” and
+“bottom” follow the requested trapezoid convention: top is the closed Face A
+side and bottom is the larger open/lid side.
+
+| Measurement | Raw value (mm) | Recommended value (mm) |
+|---|---:|---:|
+| Top length, Face A side | 143.357 | 143.36 |
+| Bottom length, lid side | 145.200 | 145.20 |
+| Top width, Face A side | 119.357 | 119.36 |
+| Bottom width, lid side | 121.200 | 121.20 |
+| Body height | 35.200 | 35.20 |
+| Long-side total taper | 1.843 | 1.84 |
+| Long-side offset per side | 0.922 | 0.92 |
+| Short-side total taper | 1.843 | 1.84 |
+| Short-side offset per side | 0.922 | 0.92 |
+
+The fitted wall draft is 1.500° on both the length and width sides. Section
+centres do not drift within the reported numerical precision, so the taper is
+centred and symmetric.
+
+The four main outer corner arcs in the stable horizontal sections have a
+calculated radius of 4.998 mm, for which 5.00 mm is the appropriate simplified
+value. This is the plan-view enclosure corner radius. The rollover around the
+closed Face A perimeter, the lap joint and local casting fillets are separate
+details and should not be represented by this radius.
+
+## Suitability of a trapezoid simplification
+
+The main flat portions of all four outer walls are planar and have the same
+1.5° draft. A centred symmetric trapezoid is therefore a sound representation
+of each side's principal silhouette.
+
+It is still an intentional simplification. The real body has rounded vertical
+corner transitions, a filleted transition into Face A, an open-edge lip, wall
+thickness, internal bosses and casting details. Consequently, a simple
+trapezoid describes the useful drilling-face envelope, not the exact developed
+surface of the casting. In particular, 143.357 × 119.357 mm is the extrapolated
+main-wall envelope at the Face A plane; the flat planar Face A land itself is
+smaller because of its perimeter fillet.
+
+The current rectangular catalog definition uses a 35.05 mm side height. The
+supplied 2014 CAD body measures 35.200 mm from its closed outer plane to its
+open plane. This report intentionally retains the CAD result and does not alter
+it to match the existing catalog or a rounded public dimension.
+
+## Hammond plausibility check
+
+Hammond's product-specific 1590XX page publishes an overall size of
+145 × 121 × 39 mm. The CAD assembly gives 145.200 × 121.200 × 39.300 mm,
+which is consistent with those rounded public dimensions. Hammond also states
+that 1590-series side-wall draft is 2° or less; the measured 1.500° falls within
+that specification.
+
+Sources:
+
+- [Hammond 1590XX product page](https://www.hammfg.com/part/1590XX)
+- [Hammond 1590-series product page][hammond-1590-series]
+- Supplied Hammond STEP assembly, generated by Autodesk Inventor 2014 on
+  2014-07-28 (`1590XX BOX`, `1590X-XX LID`, and four `SC530` screws)
+
+Public product dimensions are only a plausibility check. No CAD-derived value
+was adjusted to match them. Manufacturing and casting tolerances also make
+hundredth-millimetre JSON values more honest than the STEP kernel's much finer
+numeric output.
+
+## Proposed JSON fragment
+
+This fragment preserves pedal-drill's face convention: B/D use the short
+enclosure width and C/E use the long enclosure length. It is a proposal only;
+the enclosure catalog and runtime model have not been changed.
+
+```json
+{
+  "faces": {
+    "B": {
+      "shape": "trapezoid",
+      "top_width": 119.36,
+      "bottom_width": 121.20,
+      "height": 35.20
+    },
+    "C": {
+      "shape": "trapezoid",
+      "top_width": 143.36,
+      "bottom_width": 145.20,
+      "height": 35.20
+    },
+    "D": {
+      "shape": "trapezoid",
+      "top_width": 119.36,
+      "bottom_width": 121.20,
+      "height": 35.20
+    },
+    "E": {
+      "shape": "trapezoid",
+      "top_width": 143.36,
+      "bottom_width": 145.20,
+      "height": 35.20
+    }
+  }
+}
+```
+
+## Reproduce the analysis
+
+Install the optional tooling environment described in
+[`tools/README.md`](../tools/README.md), then run:
+
+```console
+python tools/analyze_enclosure_cad.py /path/to/1590XX.stp --nominal 145 121 39
+```
+
+The script also accepts IGES through OpenCascade. Parasolid is documented as
+unsupported by this backend and fails with a clear instruction to use STEP or
+IGES. The normal pedal-drill dependency set is unchanged.
+
+[hammond-1590-series]: https://www.hammfg.com/electronics/small-case/diecast/1590

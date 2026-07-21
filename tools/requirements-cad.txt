@@ -1,0 +1,2 @@
+# Optional tooling dependency; not part of pedal-drill's runtime installation.
+cadquery>=2.5,<2.7
