@@ -1,0 +1,27 @@
+format: pedal-drill-1
+enclosure: hammond-1590bb
+unit: mm
+
+features:
+  - type: hole
+    face: A
+    center: [0, 30]
+    diameter: 7
+
+  - type: slot
+    face: A
+    center: [20, -10]
+    length: 18
+    width: 6
+    angle: 30
+    drill_ends: true
+
+  - type: hole
+    face: C
+    center: [10, 0]
+    diameter: 9
+
+  - type: line
+    face: C
+    from: [-10, -15]
+    to: [10, -15]

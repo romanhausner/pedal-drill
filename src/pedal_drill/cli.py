@@ -11,7 +11,7 @@ from pedal_drill.enclosures import EnclosureCatalog
 from pedal_drill.enclosures.model import EnclosureDefinition
 from pedal_drill.enclosures.validation import DrillLayoutOutsideEnclosureError
 from pedal_drill.model import Face
-from pedal_drill.parsers import ParseError, TaydaTxtParser
+from pedal_drill.parsers import ParseError, parse_input_file
 from pedal_drill.renderers import PdfRenderError, ReportLabPdfRenderer
 
 CommandHandler = Callable[[argparse.Namespace], int]
@@ -23,17 +23,31 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pedal-drill")
     subcommands = parser.add_subparsers(dest="command", required=True)
     inspect_command = subcommands.add_parser(
-        "inspect", help="Validate and summarize a Tayda TXT export."
+        "inspect", help="Validate and summarize a Tayda TXT or native YAML input."
     )
-    inspect_command.add_argument("input", type=Path, help="Path to a Tayda TXT export.")
+    inspect_command.add_argument(
+        "input", type=Path, help="Path to a Tayda .txt or pedal-drill .yaml file."
+    )
     inspect_command.set_defaults(handler=_inspect)
 
     render_command = subcommands.add_parser(
-        "render", help="Render a Tayda TXT export as a 1:1 PDF."
+        "render", help="Render a Tayda TXT or native YAML input as a 1:1 PDF."
     )
-    render_command.add_argument("input", type=Path, help="Path to a Tayda TXT export.")
-    render_command.add_argument("enclosure", help="Built-in enclosure identifier.")
-    render_command.add_argument("output", type=Path, help="Destination PDF path.")
+    render_command.add_argument(
+        "input", type=Path, help="Path to a Tayda .txt or pedal-drill .yaml file."
+    )
+    render_command.add_argument(
+        "enclosure_or_output",
+        help=(
+            "Built-in enclosure ID for TXT input, or destination PDF for YAML input."
+        ),
+    )
+    render_command.add_argument(
+        "output",
+        type=Path,
+        nargs="?",
+        help="Destination PDF path when an enclosure ID is supplied.",
+    )
     render_command.set_defaults(handler=_render)
 
     list_command = subcommands.add_parser(
@@ -53,8 +67,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
 def _inspect(args: argparse.Namespace) -> int:
     try:
-        template = TaydaTxtParser().parse_file(args.input)
-    except ParseError as error:
+        parsed = parse_input_file(args.input)
+        if parsed.enclosure_id is not None:
+            EnclosureCatalog.built_in().get(parsed.enclosure_id)
+        template = parsed.template
+    except (KeyError, ParseError) as error:
         print(f"pedal-drill: {error}")
         return 2
     print(
@@ -66,9 +83,10 @@ def _inspect(args: argparse.Namespace) -> int:
 
 def _render(args: argparse.Namespace) -> int:
     try:
-        template = TaydaTxtParser().parse_file(args.input)
-        enclosure = EnclosureCatalog.built_in().get(args.enclosure)
-        pages = ReportLabPdfRenderer().render(template, enclosure, args.output)
+        parsed = parse_input_file(args.input)
+        enclosure_id, output = _render_targets(args, parsed.enclosure_id)
+        enclosure = EnclosureCatalog.built_in().get(enclosure_id)
+        pages = ReportLabPdfRenderer().render(parsed.template, enclosure, output)
     except (
         KeyError,
         ParseError,
@@ -77,8 +95,30 @@ def _render(args: argparse.Namespace) -> int:
     ) as error:
         print(f"pedal-drill: {error}")
         return 2
-    print(f"{args.output}: rendered {len(pages)} page(s)")
+    print(f"{output}: rendered {len(pages)} page(s)")
     return 0
+
+
+def _render_targets(
+    args: argparse.Namespace, embedded_enclosure_id: str | None
+) -> tuple[str, Path]:
+    """Resolve backward-compatible TXT and enclosure-owning YAML arguments."""
+
+    if embedded_enclosure_id is None:
+        if args.output is None:
+            raise ParseError(
+                "TXT rendering requires: input, enclosure ID, and output PDF."
+            )
+        return args.enclosure_or_output, args.output
+
+    if args.output is None:
+        return embedded_enclosure_id, Path(args.enclosure_or_output)
+    if args.enclosure_or_output != embedded_enclosure_id:
+        raise ParseError(
+            f"YAML selects enclosure {embedded_enclosure_id!r}, but command line "
+            f"specified {args.enclosure_or_output!r}."
+        )
+    return embedded_enclosure_id, args.output
 
 
 def _list_enclosures(_: argparse.Namespace) -> int:

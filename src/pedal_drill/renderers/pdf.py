@@ -28,6 +28,7 @@ from pedal_drill.geometry import (
     RoundedPolygonPath,
     Rectangle,
     calibration_lines,
+    capsule_centerline_endpoints,
     capsule_for_slot,
     capsule_path,
     face_polygon,
@@ -610,6 +611,14 @@ class ReportLabPdfRenderer:
             self._bottom_margin,
         )
         self._draw_capsule(canvas, capsule, self._detail_style)
+        if slot.drill_ends:
+            for center in dict.fromkeys(capsule_centerline_endpoints(capsule)):
+                self._draw_circle_feature(
+                    canvas,
+                    center,
+                    slot.width / 2,
+                    self._detail_style,
+                )
 
     def _draw_capsule(
         self, canvas: Canvas, capsule: Capsule, style: DrawingStyle

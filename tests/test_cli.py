@@ -1,8 +1,9 @@
 from pathlib import Path
 
+import pytest
 from pytest import CaptureFixture
 
-from pedal_drill.cli import main
+from pedal_drill.cli import build_parser, main
 
 
 def test_inspect_reports_imported_holes(
@@ -13,6 +14,42 @@ def test_inspect_reports_imported_holes(
 
     assert main(["inspect", str(export)]) == 0
     assert "1 hole(s)" in capsys.readouterr().out
+
+
+def test_inspect_accepts_native_yaml(capsys: CaptureFixture[str]) -> None:
+    assert main(["inspect", "tests/fixtures/native/example-layout.yaml"]) == 0
+
+    output = capsys.readouterr().out
+    assert "2 hole(s)" in output
+    assert "pedal-drill-1" in output
+
+
+def test_render_help_advertises_txt_and_yaml(
+    capsys: CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        build_parser().parse_args(["render", "--help"])
+
+    assert exit_info.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "Tayda .txt" in help_text
+    assert "pedal-drill .yaml" in help_text
+
+
+def test_inspect_rejects_unknown_native_enclosure(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    layout = tmp_path / "unknown.yaml"
+    layout.write_text(
+        """format: pedal-drill-1
+enclosure: hammond-does-not-exist
+features: []
+""",
+        encoding="utf-8",
+    )
+
+    assert main(["inspect", str(layout)]) == 2
+    assert "hammond-does-not-exist" in capsys.readouterr().out
 
 
 def test_render_reports_an_outside_feature_without_creating_pdf(

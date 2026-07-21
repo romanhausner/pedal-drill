@@ -2,7 +2,7 @@
 
 `pedal-drill` is a command-line tool for generating printable 1:1 drill
 templates for guitar-pedal enclosures from Tayda Electronics drill-template
-exports.
+exports or pedal-drill's native YAML format.
 
 It parses Tayda's unheadered TXT format, validates the complete feature geometry
 against a selected enclosure definition, and renders a PDF containing:
@@ -36,10 +36,11 @@ python -m pip install -e ".[test]"
 
 ## Usage
 
-### Inspect a Tayda export
+### Inspect an input file
 
 ```console
 pedal-drill inspect path/to/template.txt
+pedal-drill inspect path/to/layout.yaml
 ```
 
 This parses the file and reports its contents without generating a PDF.
@@ -57,6 +58,12 @@ pedal-drill render \
     path/to/template.txt \
     hammond-1590xx \
     output/template.pdf
+```
+
+Native YAML files select their enclosure inside the document:
+
+```console
+pedal-drill render examples/native-1590bb.yaml output/native-1590bb.pdf
 ```
 
 The output begins with an orientation overview of the unfolded enclosure.
@@ -125,6 +132,39 @@ lines.
 
 Blank lines and lines beginning with `#` are ignored. Invalid records are
 reported with their input line number.
+
+## Native YAML input
+
+The versioned native format supports holes, capsule slots, and construction
+lines while mapping directly onto the same domain geometry as Tayda input.
+The enclosure is selected by its built-in catalog identifier.
+
+```yaml
+format: pedal-drill-1
+enclosure: hammond-1590bb
+unit: mm
+
+features:
+  - type: hole
+    face: A
+    center: [0, 30]
+    diameter: 7
+
+  - type: slot
+    face: A
+    center: [20, -10]
+    length: 18
+    width: 6
+    angle: 30
+    drill_ends: true
+```
+
+Each face uses its own local coordinate system. Viewed directly from outside
+the enclosure, x increases to the right and y increases upward. The origin is
+the centre of the face.
+
+See [Native YAML format](docs/native-yaml.md) for the complete schema,
+coordinate and angle conventions, drilling guides, and a full example.
 
 ## Enclosure definitions
 

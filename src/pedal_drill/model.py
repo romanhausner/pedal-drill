@@ -56,12 +56,15 @@ class Slot:
     length: Decimal
     width: Decimal
     angle_degrees: Decimal
+    drill_ends: bool = False
 
     def __post_init__(self) -> None:
         if self.width <= 0:
             raise ValueError("A slot width must be greater than zero.")
         if self.length < self.width:
             raise ValueError("A slot length must be at least its width.")
+        if not isinstance(self.drill_ends, bool):
+            raise ValueError("Slot drill_ends must be a boolean.")
 
 
 @dataclass(frozen=True, slots=True)
