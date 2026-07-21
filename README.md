@@ -77,6 +77,24 @@ dimensions:
 }
 ```
 
+Rectangle is the default face shape, so existing definitions do not need a
+`shape` property. A centred symmetric trapezoid can be declared explicitly:
+
+```json
+{
+  "shape": "trapezoid",
+  "top_width": 119.36,
+  "bottom_width": 121.20,
+  "height": 35.20
+}
+```
+
+For trapezoids, `top_width` is the edge adjacent to the closed Face A surface
+and `bottom_width` is adjacent to the open/lid side. The face origin remains at
+the geometric centre. These dimensions describe the useful drilling-face
+envelope; casting fillets, rounded body transitions and the lid lip are not
+represented by the trapezoid.
+
 All five Tayda faces must be present. `mm` is currently the only accepted
 source unit; the unit declaration and loader boundary make future conversions
 possible without altering this JSON schema.

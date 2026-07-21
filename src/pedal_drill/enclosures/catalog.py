@@ -8,7 +8,13 @@ from decimal import Decimal, InvalidOperation
 from importlib.resources import files
 from pathlib import Path
 
-from pedal_drill.enclosures.model import EnclosureDefinition, FaceDimensions
+from pedal_drill.enclosures.model import (
+    EnclosureDefinition,
+    FaceDimensions,
+    FaceGeometry,
+    FaceShape,
+    TrapezoidFaceDimensions,
+)
 from pedal_drill.enclosures.units import to_base_unit
 from pedal_drill.model import Face
 
@@ -68,10 +74,7 @@ def _load_definition_file(path: Path) -> EnclosureDefinition:
         if not isinstance(unit, str):
             raise EnclosureDefinitionError("The unit must be a string.")
         faces = {
-            Face(name): FaceDimensions(
-                width=to_base_unit(_decimal(dimensions["width"]), unit),
-                height=to_base_unit(_decimal(dimensions["height"]), unit),
-            )
+            Face(name): _face_geometry(dimensions, unit)
             for name, dimensions in raw["faces"].items()
         }
         return EnclosureDefinition(
@@ -98,3 +101,23 @@ def _decimal(value: object) -> Decimal:
     if not decimal.is_finite():
         raise EnclosureDefinitionError(f"Dimension {value!r} must be finite.")
     return decimal
+
+
+def _face_geometry(dimensions: object, unit: str) -> FaceGeometry:
+    if not isinstance(dimensions, dict):
+        raise EnclosureDefinitionError("Each face definition must be an object.")
+    shape = dimensions.get("shape", FaceShape.RECTANGLE.value)
+    if shape == FaceShape.RECTANGLE.value:
+        return FaceDimensions(
+            width=to_base_unit(_decimal(dimensions["width"]), unit),
+            height=to_base_unit(_decimal(dimensions["height"]), unit),
+        )
+    if shape == FaceShape.TRAPEZOID.value:
+        return TrapezoidFaceDimensions(
+            top_width=to_base_unit(_decimal(dimensions["top_width"]), unit),
+            bottom_width=to_base_unit(
+                _decimal(dimensions["bottom_width"]), unit
+            ),
+            height=to_base_unit(_decimal(dimensions["height"]), unit),
+        )
+    raise EnclosureDefinitionError(f"Unsupported face shape: {shape!r}.")

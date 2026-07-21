@@ -6,15 +6,26 @@ from io import BytesIO
 from pathlib import Path
 from typing import cast
 
+import pytest
 from reportlab.pdfgen.canvas import Canvas
 
-from pedal_drill.enclosures import EnclosureCatalog
+from pedal_drill.enclosures import EnclosureCatalog, TrapezoidFaceDimensions
 from pedal_drill.geometry import (
     Capsule,
+    RoundedPolygonPath,
     enclosure_overview_geometry,
+    face_corner_radius,
+    rounded_polygon_path,
     transform_overview_capsule,
 )
-from pedal_drill.model import CircularHole, Face, LineSegment, Point, Slot
+from pedal_drill.model import (
+    CircularHole,
+    DrillTemplate,
+    Face,
+    LineSegment,
+    Point,
+    Slot,
+)
 from pedal_drill.overview import OverviewCompoundOutline, overview_features
 from pedal_drill.parsers import TaydaTxtParser
 from pedal_drill.renderers.pdf import ReportLabPdfRenderer
@@ -70,6 +81,9 @@ class _StrokeCanvas:
 
     def drawCentredString(self, *_: float | str) -> None:  # noqa: N802
         self.centered_strings.append(str(_[-1]))
+
+    def drawString(self, *_: float | str) -> None:  # noqa: N802
+        pass
 
     def beginPath(self) -> "_RecordedPath":  # noqa: N802
         path = _RecordedPath()
@@ -285,6 +299,140 @@ def test_detail_features_retain_the_established_detail_style() -> None:
     assert canvas.line_count == 3
     assert canvas.centered_strings == ["9"]
     assert canvas.fill_grays == []
+    assert canvas.round_rect_count == 1
+    assert canvas.paths == []
+
+
+def test_trapezoid_detail_outline_is_one_closed_rounded_polygon_path() -> None:
+    dimensions = EnclosureCatalog.built_in().get(
+        "hammond-1590xx"
+    ).dimensions_for(Face.B)
+    assert isinstance(dimensions, TrapezoidFaceDimensions)
+    canvas = _StrokeCanvas()
+
+    ReportLabPdfRenderer()._draw_face_outline(
+        cast(Canvas, canvas), dimensions, Face.B
+    )
+
+    assert canvas.round_rect_count == 0
+    assert canvas.paths[0].operations == [
+        "move",
+        "line",
+        "curve",
+        "line",
+        "curve",
+        "line",
+        "curve",
+        "line",
+        "curve",
+        "close",
+    ]
+    assert canvas.path_options == [{"stroke": 1, "fill": 0}]
+
+
+@pytest.mark.parametrize("face", [Face.B, Face.C, Face.D, Face.E])
+def test_trapezoid_overview_uses_exact_oriented_polygon_path(face: Face) -> None:
+    enclosure = EnclosureCatalog.built_in().get("hammond-1590xx")
+    overview = enclosure_overview_geometry(enclosure, scale=Decimal("1"))
+    overview_face = overview.face_for(face)
+    face_a = overview.face_for(Face.A)
+    canvas = _StrokeCanvas()
+
+    ReportLabPdfRenderer()._draw_overview_face(
+        cast(Canvas, canvas),
+        DrillTemplate(holes=(), source_format="test"),
+        enclosure,
+        overview_face,
+        is_populated=True,
+    )
+
+    assert canvas.round_rect_count == 0
+    assert [path.operations for path in canvas.paths] == [
+        [
+            "move",
+            "line",
+            "curve",
+            "line",
+            "curve",
+            "line",
+            "curve",
+            "line",
+            "curve",
+            "close",
+        ],
+        [
+            "move",
+            "line",
+            "curve",
+            "line",
+            "curve",
+            "line",
+            "curve",
+            "line",
+            "curve",
+            "close",
+        ],
+    ]
+    assert canvas.path_options == [
+        {"stroke": 0, "fill": 1},
+        {"stroke": 1, "fill": 0},
+    ]
+    assert canvas.paths[0].commands == canvas.paths[1].commands
+    contour = rounded_polygon_path(
+        overview_face.outline,
+        face_corner_radius(enclosure.dimensions_for(face)),
+    )
+    expected_commands = _rounded_path_commands(contour)
+    for path in canvas.paths:
+        assert path.commands == expected_commands
+
+        points_per_mm = float(Decimal("72") / Decimal("25.4"))
+        boundary_axis, edge_axis, adjacent_mm, outward_sign = {
+            Face.B: (1, 0, face_a.bounds.y + face_a.bounds.height, 1),
+            Face.C: (0, 1, face_a.bounds.x, -1),
+            Face.D: (1, 0, face_a.bounds.y, -1),
+            Face.E: (0, 1, face_a.bounds.x + face_a.bounds.width, 1),
+        }[face]
+        first = path.commands[0][1]
+        second = path.commands[1][1]
+        third = path.commands[4][1][-2:]
+        fourth = path.commands[5][1]
+        assert first[boundary_axis] == pytest.approx(
+            float(adjacent_mm) * points_per_mm
+        )
+        assert second[boundary_axis] == pytest.approx(first[boundary_axis])
+        narrow_length = abs(second[edge_axis] - first[edge_axis])
+        wide_length = abs(fourth[edge_axis] - third[edge_axis])
+        assert narrow_length < wide_length
+        assert (
+            third[boundary_axis] - first[boundary_axis]
+        ) * outward_sign > 0
+
+
+def _rounded_path_commands(
+    contour: RoundedPolygonPath,
+) -> list[tuple[str, tuple[float, ...]]]:
+    points_per_mm = Decimal("72") / Decimal("25.4")
+
+    def coordinates(point: Point) -> tuple[float, float]:
+        return (
+            float(point.x * points_per_mm),
+            float(point.y * points_per_mm),
+        )
+
+    commands = [("move", coordinates(contour.start))]
+    for corner in contour.corners:
+        commands.append(("line", coordinates(corner.start)))
+        commands.append(
+            (
+                "curve",
+                coordinates(corner.control1)
+                + coordinates(corner.control2)
+                + coordinates(corner.end),
+            )
+        )
+    commands.append(("close", ()))
+    return commands
 
 
 def test_custom_overview_style_does_not_change_detail_page_style() -> None:

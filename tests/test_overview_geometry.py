@@ -19,6 +19,24 @@ from pedal_drill.model import (
 from pedal_drill.renderers.pdf import ReportLabPdfRenderer
 
 
+def _edge_length(start: Point, end: Point) -> Decimal:
+    return ((end.x - start.x) ** 2 + (end.y - start.y) ** 2).sqrt()
+
+
+def _vertices_on_axis(
+    vertices: tuple[Point, ...], *, axis: str, value: Decimal
+) -> tuple[Point, ...]:
+    return tuple(vertex for vertex in vertices if getattr(vertex, axis) == value)
+
+
+def _axis_edge_length(
+    vertices: tuple[Point, ...], *, axis: str, value: Decimal
+) -> Decimal:
+    matching = _vertices_on_axis(vertices, axis=axis, value=value)
+    assert len(matching) == 2
+    return _edge_length(*matching)
+
+
 def test_overview_contains_every_face_in_the_expected_net_arrangement() -> None:
     enclosure = EnclosureCatalog.built_in().get("hammond-1590xx")
     overview = enclosure_overview_geometry(enclosure)
@@ -51,6 +69,72 @@ def test_overview_uses_one_uniform_scale_and_fits_inside_page_margins() -> None:
         assert bounds.y >= Decimal("10")
         assert bounds.x + bounds.width <= page.width - Decimal("10")
         assert bounds.y + bounds.height <= page.height - Decimal("10")
+
+
+def test_overview_trapezoids_taper_away_from_face_a() -> None:
+    overview = enclosure_overview_geometry(
+        EnclosureCatalog.built_in().get("hammond-1590xx"),
+        scale=Decimal("1"),
+        margin=Decimal("10"),
+    )
+    a = overview.face_for(Face.A)
+    b = overview.face_for(Face.B)
+    c = overview.face_for(Face.C)
+    d = overview.face_for(Face.D)
+    e = overview.face_for(Face.E)
+
+    assert b.outline.vertices[0].y == a.bounds.y + a.bounds.height
+    assert d.outline.vertices[0].y == a.bounds.y
+    assert c.outline.vertices[0].x == a.bounds.x
+    assert e.outline.vertices[0].x == a.bounds.x + a.bounds.width
+    assert b.outline.bounds.width == Decimal("121.20")
+    assert c.outline.bounds.height == Decimal("145.20")
+    assert {face.transform.scale for face in (a, b, c, d, e)} == {Decimal("1")}
+
+
+def test_all_side_faces_attach_their_narrow_face_a_edge() -> None:
+    overview = enclosure_overview_geometry(
+        EnclosureCatalog.built_in().get("hammond-1590xx"),
+        scale=Decimal("1"),
+        margin=Decimal("10"),
+    )
+    a = overview.face_for(Face.A)
+    b = overview.face_for(Face.B)
+    c = overview.face_for(Face.C)
+    d = overview.face_for(Face.D)
+    e = overview.face_for(Face.E)
+
+    assert b.bounds.y == a.bounds.y + a.bounds.height
+    assert _axis_edge_length(
+        b.outline.vertices, axis="y", value=b.bounds.y
+    ) == Decimal("119.36")
+    assert _axis_edge_length(
+        b.outline.vertices, axis="y", value=b.bounds.y + b.bounds.height
+    ) == Decimal("121.20")
+
+    assert d.bounds.y + d.bounds.height == a.bounds.y
+    assert _axis_edge_length(
+        d.outline.vertices, axis="y", value=d.bounds.y + d.bounds.height
+    ) == Decimal("119.36")
+    assert _axis_edge_length(
+        d.outline.vertices, axis="y", value=d.bounds.y
+    ) == Decimal("121.20")
+
+    assert c.bounds.x + c.bounds.width == a.bounds.x
+    assert _axis_edge_length(
+        c.outline.vertices, axis="x", value=c.bounds.x + c.bounds.width
+    ) == Decimal("143.36")
+    assert _axis_edge_length(
+        c.outline.vertices, axis="x", value=c.bounds.x
+    ) == Decimal("145.20")
+
+    assert e.bounds.x == a.bounds.x + a.bounds.width
+    assert _axis_edge_length(
+        e.outline.vertices, axis="x", value=e.bounds.x
+    ) == Decimal("143.36")
+    assert _axis_edge_length(
+        e.outline.vertices, axis="x", value=e.bounds.x + e.bounds.width
+    ) == Decimal("145.20")
 
 
 def test_overview_transform_preserves_local_coordinates_and_slot_geometry() -> None:

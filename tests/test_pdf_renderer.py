@@ -51,6 +51,8 @@ def test_renderer_creates_overview_then_one_page_for_each_populated_face(
     assert pages[0].is_overview
     assert pages[1].width == Decimal("141.20")
     assert pages[1].height == Decimal("175.20")
+    assert pages[2].width == Decimal("55.20")
+    assert pages[2].height == Decimal("175.20")
     assert draw_instructions.call_count == 2
 
 

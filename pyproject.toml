@@ -26,6 +26,7 @@ pedal-drill = "pedal_drill.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-ra"
 
 [tool.ruff]

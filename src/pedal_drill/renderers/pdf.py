@@ -10,7 +10,11 @@ from reportlab.pdfgen.canvas import Canvas
 from reportlab.pdfgen.pathobject import PDFPathObject
 from reportlab.pdfgen.pdfgeom import bezierArc
 
-from pedal_drill.enclosures.model import EnclosureDefinition, FaceDimensions
+from pedal_drill.enclosures.model import (
+    EnclosureDefinition,
+    FaceGeometry,
+    TrapezoidFaceDimensions,
+)
 from pedal_drill.enclosures.validation import validate_template_fits_enclosure
 from pedal_drill.geometry import (
     CalibrationLine,
@@ -19,13 +23,18 @@ from pedal_drill.geometry import (
     CircularArc,
     EnclosureOverview,
     OverviewFace,
+    Polygon,
+    RoundedPolygonPath,
     calibration_lines,
     capsule_for_slot,
     capsule_path,
     enclosure_overview_geometry,
+    face_bounds,
     face_corner_radius,
     face_outline,
     face_point,
+    positioned_face_polygon,
+    rounded_polygon_path,
     transform_overview_capsule,
 )
 from pedal_drill.model import (
@@ -200,9 +209,43 @@ class ReportLabPdfRenderer:
 
         bounds = overview_face.bounds
         dimensions = enclosure.dimensions_for(overview_face.face)
+        rounded_outline = (
+            rounded_polygon_path(
+                overview_face.outline,
+                face_corner_radius(dimensions) * overview_face.transform.scale,
+            )
+            if isinstance(dimensions, TrapezoidFaceDimensions)
+            else None
+        )
         if is_populated and self._overview_style.face_fill_gray is not None:
             canvas.saveState()
             canvas.setFillGray(self._overview_style.face_fill_gray)
+            if isinstance(dimensions, TrapezoidFaceDimensions):
+                assert rounded_outline is not None
+                self._draw_rounded_polygon_path(
+                    canvas, rounded_outline, stroke=0, fill=1
+                )
+            else:
+                canvas.roundRect(
+                    self._points(bounds.x),
+                    self._points(bounds.y),
+                    self._points(bounds.width),
+                    self._points(bounds.height),
+                    self._points(
+                        face_corner_radius(dimensions)
+                        * overview_face.transform.scale
+                    ),
+                    stroke=0,
+                    fill=1,
+                )
+            canvas.restoreState()
+        canvas.setLineWidth(self._overview_style.face_outline_stroke_width)
+        if isinstance(dimensions, TrapezoidFaceDimensions):
+            assert rounded_outline is not None
+            self._draw_rounded_polygon_path(
+                canvas, rounded_outline, stroke=1, fill=0
+            )
+        else:
             canvas.roundRect(
                 self._points(bounds.x),
                 self._points(bounds.y),
@@ -211,22 +254,9 @@ class ReportLabPdfRenderer:
                 self._points(
                     face_corner_radius(dimensions) * overview_face.transform.scale
                 ),
-                stroke=0,
-                fill=1,
+                stroke=1,
+                fill=0,
             )
-            canvas.restoreState()
-        canvas.setLineWidth(self._overview_style.face_outline_stroke_width)
-        canvas.roundRect(
-            self._points(bounds.x),
-            self._points(bounds.y),
-            self._points(bounds.width),
-            self._points(bounds.height),
-            self._points(
-                face_corner_radius(dimensions) * overview_face.transform.scale
-            ),
-            stroke=1,
-            fill=0,
-        )
         self._draw_overview_face_label(canvas, overview_face)
         for feature in overview_features(template, overview_face.face):
             self._draw_overview_feature(canvas, feature, overview_face)
@@ -336,11 +366,12 @@ class ReportLabPdfRenderer:
             self._points(bounds.x + Decimal("1")), self._points(label_y), label
         )
 
-    def _page_for(self, face: Face, dimensions: FaceDimensions) -> RenderedPage:
+    def _page_for(self, face: Face, dimensions: FaceGeometry) -> RenderedPage:
+        bounds = face_bounds(dimensions, face)
         return RenderedPage(
             face=face,
-            width=dimensions.width + (self._margin * 2),
-            height=dimensions.height + self._margin + self._bottom_margin,
+            width=bounds.width + (self._margin * 2),
+            height=bounds.height + self._margin + self._bottom_margin,
         )
 
     def _draw_page(
@@ -349,7 +380,7 @@ class ReportLabPdfRenderer:
         template: DrillTemplate,
         enclosure: EnclosureDefinition,
         page: RenderedPage,
-        dimensions: FaceDimensions,
+        dimensions: FaceGeometry,
     ) -> None:
         title_y = page.height - (self._margin / 2)
         canvas.setFont("Helvetica", self._detail_style.face_label_font_size)
@@ -358,24 +389,30 @@ class ReportLabPdfRenderer:
             self._points(title_y),
             f"{enclosure.model} - Face {page.face.value}",
         )
-        self._draw_calibration_lines(canvas, dimensions)
+        assert page.face is not None
+        self._draw_calibration_lines(canvas, dimensions, page.face)
         self._draw_instructions(canvas, page)
-        self._draw_face_outline(canvas, dimensions)
+        self._draw_face_outline(canvas, dimensions, page.face)
         for line in self._lines_on(template, page.face):
-            self._draw_line(canvas, line, dimensions)
+            self._draw_line(canvas, line, dimensions, page.face)
         for slot in self._slots_on(template, page.face):
             self._draw_slot(canvas, slot, dimensions)
         for hole in template.holes_on(page.face):
-            self._draw_hole(canvas, hole, dimensions)
+            self._draw_hole(canvas, hole, dimensions, page.face)
 
     def _draw_hole(
-        self, canvas: Canvas, hole: CircularHole, dimensions: FaceDimensions
+        self,
+        canvas: Canvas,
+        hole: CircularHole,
+        dimensions: FaceGeometry,
+        face: Face | None = None,
     ) -> None:
         point = face_point(
             hole.center,
             dimensions,
             self._margin,
             self._bottom_margin,
+            face,
         )
         x, y = point.x, point.y
         radius = hole.diameter / 2
@@ -393,10 +430,18 @@ class ReportLabPdfRenderer:
         )
 
     def _draw_line(
-        self, canvas: Canvas, line: LineSegment, dimensions: FaceDimensions
+        self,
+        canvas: Canvas,
+        line: LineSegment,
+        dimensions: FaceGeometry,
+        face: Face | None = None,
     ) -> None:
-        start = face_point(line.start, dimensions, self._margin, self._bottom_margin)
-        end = face_point(line.end, dimensions, self._margin, self._bottom_margin)
+        start = face_point(
+            line.start, dimensions, self._margin, self._bottom_margin, face
+        )
+        end = face_point(
+            line.end, dimensions, self._margin, self._bottom_margin, face
+        )
         canvas.setLineWidth(self._detail_style.construction_line_stroke_width)
         canvas.line(
             self._points(start.x),
@@ -406,7 +451,7 @@ class ReportLabPdfRenderer:
         )
 
     def _draw_slot(
-        self, canvas: Canvas, slot: Slot, dimensions: FaceDimensions
+        self, canvas: Canvas, slot: Slot, dimensions: FaceGeometry
     ) -> None:
         capsule = capsule_for_slot(
             slot,
@@ -539,7 +584,10 @@ class ReportLabPdfRenderer:
             self._points(center.y - radius),
             self._points(center.x + radius),
             self._points(center.y + radius),
-            float(arc.start_angle_degrees),
+            float(
+                arc.start_angle_degrees
+                + Decimal(overview_face.transform.quarter_turns * 90)
+            ),
             float(arc.sweep_degrees),
         )
 
@@ -591,9 +639,28 @@ class ReportLabPdfRenderer:
         if style.closed_feature_fill_gray is not None:
             canvas.setFillGray(style.closed_feature_fill_gray)
 
-    def _draw_face_outline(self, canvas: Canvas, dimensions: FaceDimensions) -> None:
-        outline = face_outline(dimensions, self._margin, self._bottom_margin)
+    def _draw_face_outline(
+        self,
+        canvas: Canvas,
+        dimensions: FaceGeometry,
+        face: Face | None = None,
+    ) -> None:
         canvas.setLineWidth(self._detail_style.face_outline_stroke_width)
+        if isinstance(dimensions, TrapezoidFaceDimensions):
+            self._draw_rounded_polygon(
+                canvas,
+                positioned_face_polygon(
+                    dimensions,
+                    self._margin,
+                    self._bottom_margin,
+                    face,
+                ),
+                face_corner_radius(dimensions),
+                stroke=1,
+                fill=0,
+            )
+            return
+        outline = face_outline(dimensions, self._margin, self._bottom_margin)
         canvas.roundRect(
             self._points(outline.x),
             self._points(outline.y),
@@ -604,13 +671,66 @@ class ReportLabPdfRenderer:
             fill=0,
         )
 
+    def _draw_rounded_polygon(
+        self,
+        canvas: Canvas,
+        polygon: Polygon,
+        radius: Decimal,
+        *,
+        stroke: int,
+        fill: int,
+    ) -> None:
+        """Draw one shared rounded-polygon contour."""
+
+        self._draw_rounded_polygon_path(
+            canvas,
+            rounded_polygon_path(polygon, radius),
+            stroke=stroke,
+            fill=fill,
+        )
+
+    def _draw_rounded_polygon_path(
+        self,
+        canvas: Canvas,
+        contour: RoundedPolygonPath,
+        *,
+        stroke: int,
+        fill: int,
+    ) -> None:
+        """Convert renderer-independent rounded path data to ReportLab calls."""
+
+        path = canvas.beginPath()
+        path.moveTo(self._points(contour.start.x), self._points(contour.start.y))
+        for corner in contour.corners:
+            path.lineTo(
+                self._points(corner.start.x), self._points(corner.start.y)
+            )
+            path.curveTo(
+                self._points(corner.control1.x),
+                self._points(corner.control1.y),
+                self._points(corner.control2.x),
+                self._points(corner.control2.y),
+                self._points(corner.end.x),
+                self._points(corner.end.y),
+            )
+        path.close()
+        canvas.drawPath(path, stroke=stroke, fill=fill)
+
     def _draw_calibration_lines(
-        self, canvas: Canvas, dimensions: FaceDimensions
+        self,
+        canvas: Canvas,
+        dimensions: FaceGeometry,
+        face: Face | None = None,
     ) -> None:
         """Draw the horizontal and vertical calibration lines for a face page."""
 
         try:
-            lines = calibration_lines(dimensions, self._margin, self._bottom_margin)
+            lines = calibration_lines(
+                dimensions,
+                self._margin,
+                self._bottom_margin,
+                face,
+            )
         except ValueError as error:
             raise PdfRenderError(str(error)) from error
         for line in lines:
@@ -627,6 +747,7 @@ class ReportLabPdfRenderer:
                     enclosure.dimensions_for(face),
                     self._margin,
                     self._bottom_margin,
+                    face,
                 )
         except ValueError as error:
             raise PdfRenderError(str(error)) from error
